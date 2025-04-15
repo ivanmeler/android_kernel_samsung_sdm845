@@ -36,13 +36,32 @@ static void samsung_pba_config(struct samsung_display_driver_data *vdd, void *ar
 	}
 }
 
+static char ss_panel_revision(struct samsung_display_driver_data *vdd)
+{
+    // Hardcode the panel revision to 'A'
+    vdd->panel_revision = 0;  // 'A' corresponds to 0
+
+    LCD_INFO("panel_revision = %c %d \n", vdd->panel_revision + 'A', vdd->panel_revision);
+
+    return (vdd->panel_revision + 'A');
+}
+
+static int dummy_poc_write(struct samsung_display_driver_data *vdd,
+                           u8 *data, u32 write_pos, u32 write_size)
+{
+        pr_info("Dummy POC write: pos=0x%x size=%u\n", write_pos, write_size);
+        return 0;
+}
+
 static void samsung_panel_init(struct samsung_display_driver_data *vdd)
 {
 	LCD_INFO("%s\n", ss_get_panel_name(vdd));
 
 	vdd->support_mdnie_lite = false;
+	vdd->panel_func.samsung_panel_revision = ss_panel_revision;
 	vdd->dtsi_data.tft_common_support = true;
 	vdd->panel_func.samsung_pba_config = samsung_pba_config;
+	vdd->poc_driver.poc_write = dummy_poc_write;
 }
 
 static int __init samsung_panel_initialize(void)

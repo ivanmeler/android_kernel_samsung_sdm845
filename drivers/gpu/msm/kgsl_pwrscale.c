@@ -161,7 +161,8 @@ void kgsl_pwrscale_update_stats(struct kgsl_device *device)
 			do_div(y, 100);
 			x *= popp_param[psc->popp_level].gpu_x;
 			y *= popp_param[psc->popp_level].ddr_y;
-			trace_kgsl_popp_mod(device, x, y);
+                        if (device && device->name)
+                            trace_kgsl_popp_mod(device, x, y);
 			stats.busy_time += x;
 			stats.ram_time += y;
 		}

@@ -583,14 +583,18 @@ static inline bool kgsl_is_register_offset(struct kgsl_device *device,
 }
 
 static inline bool kgsl_is_gmu_offset(struct kgsl_device *device,
-				unsigned int offsetwords)
+                                      unsigned int offsetwords)
 {
-	struct gmu_device *gmu = &device->gmu;
+        struct gmu_device *gmu;
 
-	return (gmu->pdev &&
-		(offsetwords >= gmu->gmu2gpu_offset) &&
-		((offsetwords - gmu->gmu2gpu_offset) * sizeof(uint32_t) <
-			gmu->reg_len));
+        if (!device || !device->gmu.pdev)
+                return false;
+
+        gmu = &device->gmu;
+
+        return (offsetwords >= gmu->gmu2gpu_offset) &&
+               ((offsetwords - gmu->gmu2gpu_offset) * sizeof(uint32_t) <
+                    gmu->reg_len);
 }
 
 static inline void kgsl_regread(struct kgsl_device *device,

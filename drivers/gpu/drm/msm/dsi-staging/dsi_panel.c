@@ -3487,106 +3487,84 @@ struct dsi_panel *dsi_panel_get(struct device *parent,
 				enum dsi_panel_type type)
 {
 	struct dsi_panel *panel;
-	int rc = 0;
+	int rc;
+	const char *panel_name = NULL;
+	const char *esd_mode_str = "N/A";
 
 	panel = kzalloc(sizeof(*panel), GFP_KERNEL);
 	if (!panel)
 		return ERR_PTR(-ENOMEM);
 
+	pr_info("%s: Allocated panel structure\n", __func__);
+
 	if (type == DSI_PANEL) {
-		panel->name = of_get_property(of_node,
-			"qcom,mdss-dsi-panel-name", NULL);
-		if (!panel->name)
-			panel->name = DSI_PANEL_DEFAULT_LABEL;
+		panel_name = of_get_property(of_node, "qcom,mdss-dsi-panel-name", NULL);
+		panel->name = panel_name ? panel_name : DSI_PANEL_DEFAULT_LABEL;
+		pr_info("%s: Panel name set to: %s\n", __func__, panel->name);
 
 		rc = dsi_panel_parse_host_config(panel, of_node);
-		if (rc) {
-			pr_err("failed to parse host configuration, rc=%d\n",
-				rc);
+		pr_info("%s: Host config parsed, rc=%d\n", __func__, rc);
+		if (rc)
 			goto error;
-		}
 
 		rc = dsi_panel_parse_panel_mode(panel, of_node);
-		if (rc) {
-			pr_err("failed to parse panel mode configuration, rc=%d\n",
-				rc);
-			goto error;
-		}
-
-		rc = dsi_panel_parse_dfps_caps(&panel->dfps_caps,
-			of_node, panel->name);
+		pr_info("%s: Panel mode parsed, rc=%d\n", __func__, rc);
 		if (rc)
-			pr_err("failed to parse dfps configuration, rc=%d\n",
-				rc);
+			goto error;
+
+		rc = dsi_panel_parse_dfps_caps(&panel->dfps_caps, of_node, panel->name);
+		pr_info("%s: DFPS caps parsed, rc=%d\n", __func__, rc);
 
 		if (panel->panel_mode == DSI_OP_VIDEO_MODE) {
-			rc = dsi_panel_parse_dyn_clk_caps(&panel->dyn_clk_caps,
-				of_node, panel->name);
-			if (rc)
-				pr_err("failed to parse dynamic clk config, rc=%d\n",
-				       rc);
+			rc = dsi_panel_parse_dyn_clk_caps(&panel->dyn_clk_caps, of_node, panel->name);
+			pr_info("%s: Dynamic clk caps parsed, rc=%d\n", __func__, rc);
 		}
 
-		rc = dsi_panel_parse_phy_props(&panel->phy_props,
-			of_node, panel->name);
-		if (rc) {
-			pr_err("failed to parse panel physical dimension, rc=%d\n",
-				rc);
+		rc = dsi_panel_parse_phy_props(&panel->phy_props, of_node, panel->name);
+		pr_info("%s: Phy props parsed, rc=%d\n", __func__, rc);
+		if (rc)
 			goto error;
-		}
 
 		rc = dsi_panel_parse_power_cfg(parent, panel, of_node);
-		if (rc)
-			pr_err("failed to parse power config, rc=%d\n", rc);
+		pr_info("%s: Power config parsed, rc=%d\n", __func__, rc);
 
 		rc = dsi_panel_parse_gpios(panel, of_node);
-		if (rc)
-			pr_err("failed to parse panel gpios, rc=%d\n", rc);
+		pr_info("%s: GPIOs parsed, rc=%d\n", __func__, rc);
 
 		rc = dsi_panel_parse_bl_config(panel, of_node);
-		if (rc)
-			pr_err("failed to parse backlight config, rc=%d\n", rc);
-
+		pr_info("%s: Backlight config parsed, rc=%d\n", __func__, rc);
 
 		rc = dsi_panel_parse_misc_features(panel, of_node);
-		if (rc)
-			pr_err("failed to parse misc features, rc=%d\n", rc);
+		pr_info("%s: Misc features parsed, rc=%d\n", __func__, rc);
 
 		rc = dsi_panel_parse_hdr_config(panel, of_node);
-		if (rc)
-			pr_err("failed to parse hdr config, rc=%d\n", rc);
+		pr_info("%s: HDR config parsed, rc=%d\n", __func__, rc);
 
 		rc = dsi_panel_get_mode_count(panel, of_node);
-		if (rc) {
-			pr_err("failed to get mode count, rc=%d\n", rc);
+		pr_info("%s: Mode count retrieved, rc=%d\n", __func__, rc);
+		if (rc)
 			goto error;
-		}
 
 		rc = dsi_panel_parse_dms_info(panel, of_node);
-		if (rc)
-			pr_debug("failed to get dms info, rc=%d\n", rc);
+		pr_info("%s: DMS info parsed, rc=%d\n", __func__, rc);
 
 		rc = dsi_panel_parse_esd_config(panel, of_node);
-		if (rc) {
-			pr_debug("failed to parse esd config, rc=%d\n", rc);
-		} else {
-			u8 *esd_mode = NULL;
-
+		pr_info("%s: ESD config parsed, rc=%d\n", __func__, rc);
+		if (!rc) {
 #if defined(CONFIG_DISPLAY_SAMSUNG)
 			if (panel->esd_config.status_mode == ESD_MODE_PANEL_IRQ)
-				esd_mode = "irq_check";
+				esd_mode_str = "irq_check";
 #endif
-
-			pr_info("ESD enabled with mode: %s\n", esd_mode);
+			pr_info("%s: ESD enabled with mode: %s\n", __func__, esd_mode_str);
 		}
-
 
 		panel->type = DSI_PANEL;
 	} else if (type == EXT_BRIDGE) {
 		panel->name = EXT_BRIDGE_DEFAULT_LABEL;
 		panel->type = EXT_BRIDGE;
+		pr_info("%s: Set up external bridge panel\n", __func__);
 	} else {
-		pr_err("invalid panel type\n");
+		pr_err("%s: Invalid panel type\n", __func__);
 		rc = -ENOTSUPP;
 		goto error;
 	}
@@ -3595,8 +3573,12 @@ struct dsi_panel *dsi_panel_get(struct device *parent,
 	drm_panel_init(&panel->drm_panel);
 	mutex_init(&panel->panel_lock);
 	panel->parent = parent;
+
+	pr_info("%s: Panel initialized successfully\n", __func__);
 	return panel;
+
 error:
+	pr_err("%s: Panel init failed, rc=%d\n", __func__, rc);
 	kfree(panel);
 	return ERR_PTR(rc);
 }

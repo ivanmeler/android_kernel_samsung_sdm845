@@ -1334,12 +1334,23 @@ static inline void ss_get_secondary_panel_name_cmdline(char *panel_name)
 }
 
 
-#define GET_DSI_PANEL(vdd)	((struct dsi_panel *) (vdd)->msm_private)
+#define GET_DSI_PANEL(vdd)      ((struct dsi_panel *) (vdd)->msm_private)
 static inline struct dsi_display *GET_DSI_DISPLAY(
-		struct samsung_display_driver_data *vdd)
+                struct samsung_display_driver_data *vdd)
 {
 	struct dsi_panel *panel = GET_DSI_PANEL(vdd);
-	struct dsi_display *display = dev_get_drvdata(panel->parent);
+	struct dsi_display *display = NULL;
+
+	if (!panel) {
+		pr_warn("GET_DSI_DISPLAY: panel is NULL\n");
+		return NULL;
+	}
+	if (!panel->parent) {
+                pr_warn("GET_DSI_DISPLAY: panel->parent is NULL\n");
+                return NULL;
+        }
+
+	display = dev_get_drvdata(panel->parent);
 	return display;
 }
 
@@ -1353,16 +1364,26 @@ static inline struct drm_device *GET_DRM_DEV(
 }
 
 // refer to msm_drm_init()
-static inline struct msm_kms *GET_MSM_KMS(
-		struct samsung_display_driver_data *vdd)
+static inline struct msm_kms *GET_MSM_KMS(struct samsung_display_driver_data *vdd)
 {
-	struct dsi_display *display = GET_DSI_DISPLAY(vdd);
-	struct drm_device *ddev = display->drm_dev;
-	struct msm_drm_private *priv = ddev->dev_private;
+    struct dsi_display *display = GET_DSI_DISPLAY(vdd);
+    struct drm_device *ddev = display->drm_dev;
+    struct msm_drm_private *priv = NULL;
 
-	return priv->kms;
+    if (!ddev) {
+        pr_err("GET_MSM_KMS: ddev is NULL\n");
+        return NULL;
+    }
+
+    if (!ddev->dev_private) {
+        pr_err("GET_MSM_KMS: ddev->dev_private is NULL\n");
+        return NULL;
+    }
+
+    priv = ddev->dev_private;
+    return priv->kms;
 }
-#define GET_SDE_KMS(vdd)	to_sde_kms(GET_MSM_KMS(vdd))
+#define GET_SDE_KMS(vdd)        to_sde_kms(GET_MSM_KMS(vdd))
 
 static inline struct drm_crtc *GET_DRM_CRTC(
 		struct samsung_display_driver_data *vdd)
