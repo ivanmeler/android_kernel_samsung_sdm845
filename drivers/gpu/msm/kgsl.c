@@ -1406,29 +1406,28 @@ long kgsl_ioctl_device_getproperty(struct kgsl_device_private *dev_priv,
 		kgsl_context_put(context);
 		break;
 	}
-case KGSL_PROP_SECURE_BUFFER_ALIGNMENT:
-{
-    unsigned int align;
+	case KGSL_PROP_SECURE_BUFFER_ALIGNMENT:
+	{
+		unsigned int align;
 
-    if (param->sizebytes != sizeof(unsigned int)) {
-        result = -EINVAL;
-        break;
-    }
+		if (param->sizebytes != sizeof(unsigned int)) {
+			result = -EINVAL;
+			break;
+		}
+		/*
+		 * XPUv2 impose the constraint of 1MB memory alignment,
+		 * on the other hand Hypervisor does not have such
+		 * constraints. So driver should fulfill such
+		 * requirements when allocating secure memory.
+		 */
+		align = MMU_FEATURE(&dev_priv->device->mmu,
+				KGSL_MMU_HYP_SECURE_ALLOC) ? PAGE_SIZE : SZ_1M;
 
-    align = MMU_FEATURE(&dev_priv->device->mmu,
-            KGSL_MMU_HYP_SECURE_ALLOC) ? PAGE_SIZE : SZ_1M;
+		if (copy_to_user(param->value, &align, sizeof(align)))
+			result = -EFAULT;
 
-    if (!param->value || !access_ok(VERIFY_WRITE, param->value, sizeof(align))) {
-        pr_err("kgsl: Invalid user pointer in SECURE_BUFFER_ALIGNMENT\n");
-        result = -EFAULT;
-        break;
-    }
-
-    if (copy_to_user(param->value, &align, sizeof(align)))
-        result = -EFAULT;
-
-    break;
-}
+		break;
+	}
 	case KGSL_PROP_SECURE_CTXT_SUPPORT:
 	{
 		unsigned int secure_ctxt;

@@ -1523,7 +1523,6 @@ static ssize_t ss_self_display_store(struct device *dev,
 		struct device_attribute *attr, const char *buf, size_t size)
 {
 	int input[20];
-	int ret;
 	struct samsung_display_driver_data *vdd =
 		(struct samsung_display_driver_data *)dev_get_drvdata(dev);
 
@@ -1539,12 +1538,12 @@ static ssize_t ss_self_display_store(struct device *dev,
 
 	vdd->debug_data->print_cmds = true;
 
-        ret = sscanf(buf, "%d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d",
-               &input[0], &input[1], &input[2], &input[3],
-               &input[4], &input[5], &input[6], &input[7],
-               &input[8], &input[9], &input[10], &input[11],
-               &input[12], &input[13], &input[14], &input[15],
-               &input[16], &input[17], &input[18], &input[19]);
+	sscanf(buf, "%d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d",
+			&input[0], &input[1], &input[2], &input[3],
+			&input[4], &input[5], &input[6], &input[7],
+			&input[8], &input[9], &input[10], &input[11],
+			&input[12], &input[13], &input[14], &input[15],
+			&input[16], &input[17], &input[18], &input[19]);
 
 	switch (input[0]) {
 	case 0: /* SELF_MOVE */
@@ -1554,10 +1553,6 @@ static ssize_t ss_self_display_store(struct device *dev,
 			self_move_on(false);
 		break;
 	case 1: /* SELF_ICON */
- 	   	if (ret < 6) {
-        	    LCD_ERR("Not enough input values for SELF_ICON (need 6, got %d)\n", ret);
-        	    return size;
-    		}
 		vdd->self_disp.si_info.en = input[1];
 		vdd->self_disp.si_info.pos_x = input[2];
 		vdd->self_disp.si_info.pos_y = input[3];
@@ -1566,10 +1561,6 @@ static ssize_t ss_self_display_store(struct device *dev,
 		self_icon_set();
 		break;
 	case 2: /* SELF_GRID */
-                if (ret < 6) {
-                    LCD_ERR("Not enough input values for SELF_GRID (need 6, got %d)\n", ret);
-                    return size;
-                }
 		vdd->self_disp.sg_info.en = input[1];
 		vdd->self_disp.sg_info.s_pos_x = input[2];
 		vdd->self_disp.sg_info.s_pos_y = input[3];
@@ -1578,10 +1569,6 @@ static ssize_t ss_self_display_store(struct device *dev,
 		self_grid_set();
 		break;
 	case 3: /* SELF_ANALOG_CLOCK */
-                if (ret < 5) {
-                    LCD_ERR("Not enough input values for SELF_ANALOG_CLOCK (need 5, got %d)\n", ret);
-                    return size;
-                }
 		vdd->self_disp.sa_info.en = input[1];
 		vdd->self_disp.sa_info.pos_x = input[2];
 		vdd->self_disp.sa_info.pos_y = input[3];
@@ -1589,10 +1576,6 @@ static ssize_t ss_self_display_store(struct device *dev,
 		self_aclock_set();
 		break;
 	case 4: /* SELF_DIGITAL_CLOCK */
-                if (ret < 14) {
-                    LCD_ERR("Not enough input values for SELF_ANALOG_CLOCK (need 14, got %d)\n", ret);
-                    return size;
-                }
 		vdd->self_disp.sd_info.en = input[1];
 		vdd->self_disp.sd_info.en_hh = input[2];
 		vdd->self_disp.sd_info.en_mm = input[3];
@@ -1609,10 +1592,6 @@ static ssize_t ss_self_display_store(struct device *dev,
 		self_dclock_set();
 		break;
 	case 5: /* SELF_TIME_SET */
-                if (ret < 7) {
-                    LCD_ERR("Not enough input values for SELF_TIME_SET (need 7, got %d)\n", ret);
-                    return size;
-                }
 		vdd->self_disp.st_info.cur_h = input[1];
 		vdd->self_disp.st_info.cur_m = input[2];
 		vdd->self_disp.st_info.cur_s = input[3];
