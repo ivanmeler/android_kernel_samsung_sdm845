@@ -3643,8 +3643,7 @@ int dsi_panel_drv_init(struct dsi_panel *panel,
 	 * So, use panel name to verify PBA booting,
 	 * intead of ss_panel_attach_get().
 	 */
-	if(true) {
-	//if (!strcmp(panel->name, "ss_dsi_panel_PBA_BOOTING_FHD")) {
+	if (!strcmp(panel->name, "ss_dsi_panel_PBA_BOOTING_FHD")) {
 		pr_info("PBA booting, skip to get vreg, gpios\n");
 		goto pba_booting;
 	}
@@ -3755,8 +3754,7 @@ int dsi_panel_get_mode_count(struct dsi_panel *panel,
 	panel->num_timing_nodes = 0;
 
 #if defined(CONFIG_DISPLAY_SAMSUNG)
-	if(true){
-	//if (!strcmp(panel->name, "ss_dsi_panel_PBA_BOOTING_FHD")) {
+	if (!strcmp(panel->name, "ss_dsi_panel_PBA_BOOTING_FHD")) {
 		pr_info("PBA booting, force to set num_timing_nodes 1\n");
 		panel->num_timing_nodes = 1;
 		return 0;
@@ -3864,8 +3862,7 @@ int dsi_panel_get_mode(struct dsi_panel *panel,
 	prv_info = mode->priv_info;
 
 #if defined(CONFIG_DISPLAY_SAMSUNG)
-	if (true) {
-	//if (!strcmp(panel->name, "ss_dsi_panel_PBA_BOOTING_FHD")) {
+	if (!strcmp(panel->name, "ss_dsi_panel_PBA_BOOTING_FHD")) {
 		pr_info("PBA booting, skip DMS\n");
 
 		rc = dsi_panel_parse_timing(panel->parent, &mode->timing, panel->name, panel->panel_of_node);

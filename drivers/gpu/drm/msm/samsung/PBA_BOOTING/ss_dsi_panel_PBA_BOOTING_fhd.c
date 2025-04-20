@@ -47,37 +47,31 @@ static void samsung_panel_init(struct samsung_display_driver_data *vdd)
 
 static int __init samsung_panel_initialize(void)
 {
-        struct samsung_display_driver_data *vdd;
-        enum ss_display_ndx ndx;
-        char panel_string[] = "ss_dsi_panel_PBA_BOOTING_FHD";
-        char panel_name[MAX_CMDLINE_PARAM_LEN];
-        char panel_secondary_name[MAX_CMDLINE_PARAM_LEN];
+	struct samsung_display_driver_data *vdd;
+	enum ss_display_ndx ndx;
+	char panel_string[] = "ss_dsi_panel_PBA_BOOTING_FHD";
+	char panel_name[MAX_CMDLINE_PARAM_LEN];
+	char panel_secondary_name[MAX_CMDLINE_PARAM_LEN];
 
-        pr_info("[SDE][PBA] samsung_panel_initialize() called\n");
+	ss_get_primary_panel_name_cmdline(panel_name);
+	ss_get_secondary_panel_name_cmdline(panel_secondary_name);
 
-        ss_get_primary_panel_name_cmdline(panel_name);
-        pr_info("[SDE][PBA] Primary panel name from cmdline: %s\n", panel_name);
+	/* TODO: use component_bind with panel_func
+	 * and match by panel_string, instead.
+	 */
+	if (!strncmp(panel_string, panel_name, strlen(panel_string)))
+		ndx = PRIMARY_DISPLAY_NDX;
+	else if (!strncmp(panel_string, panel_secondary_name,
+				strlen(panel_string)))
+		ndx = SECONDARY_DISPLAY_NDX;
+	else
+		return 0;
 
-        ss_get_secondary_panel_name_cmdline(panel_secondary_name);
-        pr_info("[SDE][PBA] Secondary panel name from cmdline: %s\n", panel_secondary_name);
+	vdd = &vdd_data[ndx];
+	vdd->panel_func.samsung_panel_init = samsung_panel_init;
 
-        if (!strncmp(panel_string, panel_name, strlen(panel_string))) {
-                pr_info("[SDE][PBA] Matched panel_string with PRIMARY panel\n");
-                ndx = PRIMARY_DISPLAY_NDX;
-        } else if (!strncmp(panel_string, panel_secondary_name, strlen(panel_string))) {
-                pr_info("[SDE][PBA] Matched panel_string with SECONDARY panel\n");
-                ndx = SECONDARY_DISPLAY_NDX;
-        } else {
-                pr_info("[SDE][PBA] No matching panel found, skipping panel initialization\n");
-                return 0;
-        }
+	return 0;
 
-        vdd = &vdd_data[ndx];
-        pr_info("[SDE][PBA] vdd_data set for ndx = %d\n", ndx);
 
-        vdd->panel_func.samsung_panel_init = samsung_panel_init;
-        pr_info("[SDE][PBA] samsung_panel_init assigned to panel_func\n");
-
-        return 0;
 }
 early_initcall(samsung_panel_initialize);

@@ -3524,6 +3524,13 @@ static int sde_kms_hw_init(struct msm_kms *kms)
 	if (rc)
 		SDE_DEBUG("sde splash data fetch failed: %d\n", rc);
 
+	for (i = 0; i < SDE_POWER_HANDLE_DBUS_ID_MAX; i++) {
+		priv->phandle.data_bus_handle[i].ab_rt =
+			SDE_POWER_HANDLE_CONT_SPLASH_BUS_AB_QUOTA;
+		priv->phandle.data_bus_handle[i].ib_rt =
+			SDE_POWER_HANDLE_CONT_SPLASH_BUS_IB_QUOTA;
+	}
+
 	rc = sde_power_resource_enable(&priv->phandle, sde_kms->core_client,
 		true);
 	if (rc) {
@@ -3580,12 +3587,8 @@ static int sde_kms_hw_init(struct msm_kms *kms)
 		sde_rm_cont_splash_res_init(priv, &sde_kms->rm,
 					&sde_kms->splash_data,
 					sde_kms->catalog);
-	/*
-	* SMMU handoff is necessary for continuous splash enabled
-	* scenario.
-	*/
-	//if (sde_kms->splash_data.cont_splash_en)
-	//	sde_kms->splash_data.smmu_handoff_pending = true;
+
+	sde_kms->splash_data.resource_handoff_pending = true;
 
 	/* Initialize reg dma block which is a singleton */
 	rc = sde_reg_dma_init(sde_kms->reg_dma, sde_kms->catalog,
@@ -3650,18 +3653,16 @@ static int sde_kms_hw_init(struct msm_kms *kms)
 		goto drm_obj_init_err;
 	}
 
-	dev->mode_config.min_width = 0;
-	dev->mode_config.min_height = 0;
+	dev->mode_config.min_width = sde_kms->catalog->min_display_width;
+	dev->mode_config.min_height = sde_kms->catalog->min_display_height;
+	dev->mode_config.max_width = sde_kms->catalog->max_display_width;
+	dev->mode_config.max_height = sde_kms->catalog->max_display_height;
+
 	mutex_init(&sde_kms->secure_transition_lock);
+	mutex_init(&sde_kms->vblank_ctl_global_lock);
+
 	atomic_set(&sde_kms->detach_sec_cb, 0);
 	atomic_set(&sde_kms->detach_all_cb, 0);
-
-	/*
-	 * max crtc width is equal to the max mixer width * 2 and max height is
-	 * is 4K
-	 */
-	dev->mode_config.max_width = sde_kms->catalog->max_mixer_width * 2;
-	dev->mode_config.max_height = 4096;
 
 	/*
 	 * Support format modifiers for compression etc.
@@ -3703,12 +3704,19 @@ static int sde_kms_hw_init(struct msm_kms *kms)
 		SDE_DEBUG("added genpd provider %s\n", sde_kms->genpd.name);
 	}
 
-	if (sde_kms->splash_data.cont_splash_en)
+	if (sde_kms->splash_data.cont_splash_en) {
 		SDE_DEBUG("Skipping MDP Resources disable\n");
-	else
+	} else {
+		for (i = 0; i < SDE_POWER_HANDLE_DBUS_ID_MAX; i++)
+			sde_power_data_bus_set_quota(&priv->phandle,
+				sde_kms->core_client,
+				SDE_POWER_HANDLE_DATA_BUS_CLIENT_RT, i,
+				SDE_POWER_HANDLE_ENABLE_BUS_AB_QUOTA,
+				SDE_POWER_HANDLE_ENABLE_BUS_IB_QUOTA);
+
 		sde_power_resource_enable(&priv->phandle,
 						sde_kms->core_client, false);
-
+	}
 	return 0;
 
 genpd_err:
