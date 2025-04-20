@@ -3405,15 +3405,37 @@ struct sde_mdss_cfg *sde_hw_catalog_init(struct drm_device *dev, u32 hw_rev)
 		struct samsung_display_driver_data *vdd = samsung_get_vdd();
 		struct sde_kms *sde_kms = NULL;
 
-		if (IS_ERR_OR_NULL(vdd))
+		pr_info("SDE: Samsung display callback block\n");
+
+		if (IS_ERR_OR_NULL(vdd)) {
+			pr_warn("SDE: samsung_get_vdd() returned NULL or error\n");
 			goto done;
+		}
+		pr_info("SDE: samsung_get_vdd() OK\n");
 
 		sde_kms = GET_SDE_KMS(vdd);
-
-		if (IS_ERR_OR_NULL(sde_kms) ||
-				IS_ERR_OR_NULL(sde_kms->base.funcs->ss_callback))
+		if (IS_ERR_OR_NULL(sde_kms)) {
+			pr_warn("SDE: GET_SDE_KMS returned NULL or error\n");
 			goto done;
+		}
+		pr_info("SDE: GET_SDE_KMS OK\n");
 
+		if (!sde_kms->dev) {
+			pr_err("SDE: sde_kms->dev is NULL!\n");
+			goto done;
+		}
+
+		if (!sde_kms->base.funcs) {
+			pr_warn("SDE: sde_kms->base.funcs is NULL\n");
+			goto done;
+		}
+
+		if (!sde_kms->base.funcs->ss_callback) {
+			pr_warn("SDE: sde_kms->base.funcs->ss_callback is NULL\n");
+			goto done;
+		}
+
+		pr_info("SDE: calling ss_callback\n");
 		sde_kms->base.funcs->ss_callback(sde_kms->dev,
 				SS_EVENT_SDE_HW_CATALOG_INIT, (void *)sde_cfg);
 	}
