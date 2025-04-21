@@ -251,7 +251,7 @@ early_param("androidboot.boot_recovery", boot_recovery);
 
 unsigned int is_boot_recovery(void)
 {
-	return __is_boot_recovery;
+	return 1;//__is_boot_recovery;
 }
 EXPORT_SYMBOL(is_boot_recovery);
 

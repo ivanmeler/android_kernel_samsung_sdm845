@@ -3638,57 +3638,15 @@ int dsi_panel_drv_init(struct dsi_panel *panel,
 	dev->lanes = 4;
 
 	panel->host = host;
-#if defined(CONFIG_DISPLAY_SAMSUNG)
+
 	/* In this point, vdd->panel_attach_status has invalid data.
 	 * So, use panel name to verify PBA booting,
 	 * intead of ss_panel_attach_get().
 	 */
-	if (!strcmp(panel->name, "ss_dsi_panel_PBA_BOOTING_FHD")) {
-		pr_info("PBA booting, skip to get vreg, gpios\n");
-		goto pba_booting;
-	}
-#endif
-	rc = dsi_panel_vreg_get(panel);
-	if (rc) {
-		pr_err("[%s] failed to get panel regulators, rc=%d\n",
-		       panel->name, rc);
-		goto exit;
-	}
-
-	rc = dsi_panel_pinctrl_init(panel);
-	if (rc) {
-		pr_err("[%s] failed to init pinctrl, rc=%d\n", panel->name, rc);
-		goto error_vreg_put;
-	}
-
-	rc = dsi_panel_gpio_request(panel);
-	if (rc) {
-		pr_err("[%s] failed to request gpios, rc=%d\n", panel->name,
-		       rc);
-		goto error_pinctrl_deinit;
-	}
-
-	rc = dsi_panel_bl_register(panel);
-	if (rc) {
-		if (rc != -EPROBE_DEFER)
-			pr_err("[%s] failed to register backlight, rc=%d\n",
-			       panel->name, rc);
-		goto error_gpio_release;
-	}
-
-#if defined(CONFIG_DISPLAY_SAMSUNG)
-pba_booting:
+	pr_info("PBA booting, skip to get vreg, gpios\n");
 	ss_panel_init(panel);
-#endif
-	goto exit;
 
-error_gpio_release:
-	(void)dsi_panel_gpio_release(panel);
-error_pinctrl_deinit:
-	(void)dsi_panel_pinctrl_deinit(panel);
-error_vreg_put:
-	(void)dsi_panel_vreg_put(panel);
-exit:
+	// exit
 	mutex_unlock(&panel->panel_lock);
 	return rc;
 }
