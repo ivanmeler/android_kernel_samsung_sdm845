@@ -539,11 +539,9 @@ static int dp_audio_ack_done(struct platform_device *pdev, u32 ack)
 
 	ack_hpd = ack & AUDIO_ACK_CONNECT;
 
-	pr_debug("acknowledging audio (%d), engine_on (%d)\n", ack_hpd, audio->engine_on);
+	pr_debug("acknowledging audio (%d)\n", ack_hpd);
 
-#ifndef CONFIG_SEC_DISPLAYPORT
 	if (!audio->engine_on)
-#endif
 		complete_all(&audio->hpd_comp);
 end:
 	return rc;
@@ -661,12 +659,6 @@ static int dp_audio_on(struct dp_audio *dp_audio)
 		return -EINVAL;
 	}
 
-#ifdef CONFIG_SEC_DISPLAYPORT
-	if (!secdp_get_cable_status()) {
-		pr_info("cable is out\n");
-		return -EINVAL;
-	}
-#endif
 	audio = container_of(dp_audio, struct dp_audio_private, dp_audio);
 	if (IS_ERR(audio)) {
 		pr_err("invalid input\n");

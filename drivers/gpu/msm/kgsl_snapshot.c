@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2019, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2012-2017, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -335,8 +335,10 @@ int kgsl_snapshot_get_object(struct kgsl_snapshot *snapshot,
 
 	entry = kgsl_sharedmem_find(process, gpuaddr);
 
-	if (entry == NULL)
+	if (entry == NULL) {
+		KGSL_CORE_ERR("Unable to find GPU buffer 0x%016llX\n", gpuaddr);
 		return -EINVAL;
+	}
 
 	/* We can't freeze external memory, because we don't own it */
 	if (entry->memdesc.flags & KGSL_MEMFLAGS_USERMEM_MASK)
@@ -662,8 +664,7 @@ void kgsl_device_snapshot(struct kgsl_device *device,
 	 */
 	if (device->snapshot != NULL) {
 		KGSL_DRV_ERR(device, "snapshot: device->snapshot is NULL\n");
-		if (!device->prioritize_unrecoverable ||
-				!device->snapshot->recovered)
+		if (!gmu_fault || !device->snapshot->recovered)
 			return;
 
 		/*
@@ -705,20 +706,24 @@ void kgsl_device_snapshot(struct kgsl_device *device,
 	snapshot->size += sizeof(*header);
 
 	/* Build the Linux specific header */
-	if (gmu_fault)
+	/* We either want to only dump GMU, or we want to dump GPU and GMU */
+	if (gmu_fault) {
+		/* Dump only the GMU */
 		kgsl_snapshot_add_section(device, KGSL_SNAPSHOT_SECTION_OS,
-			snapshot, snapshot_os_no_ctxt, NULL);
-	else
-		kgsl_snapshot_add_section(device, KGSL_SNAPSHOT_SECTION_OS,
-			snapshot, snapshot_os, NULL);
+				snapshot, snapshot_os_no_ctxt, NULL);
 
-	/*
-	 * Trigger both GPU and GMU snapshot. GPU specific code
-	 * will take care of whether to dumps full state or only
-	 * GMU state based on current GPU power state.
-	 */
-	if (device->ftbl->snapshot)
-		device->ftbl->snapshot(device, snapshot, context);
+		if (device->ftbl->snapshot_gmu)
+			device->ftbl->snapshot_gmu(device, snapshot);
+	} else {
+		/* Dump GPU and GMU */
+		kgsl_snapshot_add_section(device, KGSL_SNAPSHOT_SECTION_OS,
+				snapshot, snapshot_os, NULL);
+
+		if (device->ftbl->snapshot)
+			device->ftbl->snapshot(device, snapshot, context);
+		if (device->ftbl->snapshot_gmu)
+			device->ftbl->snapshot_gmu(device, snapshot);
+	}
 
 	/*
 	 * The timestamp is the seconds since boot so it is easier to match to
@@ -952,28 +957,6 @@ static ssize_t force_panic_store(struct kgsl_device *device, const char *buf,
 	return (ssize_t) ret < 0 ? ret : count;
 }
 
-/* Show the prioritize_unrecoverable status */
-static ssize_t prioritize_unrecoverable_show(
-		struct kgsl_device *device, char *buf)
-{
-	return snprintf(buf, PAGE_SIZE, "%d\n",
-			device->prioritize_unrecoverable);
-}
-
-/* Store the priority value to prioritize unrecoverable */
-static ssize_t prioritize_unrecoverable_store(
-		struct kgsl_device *device, const char *buf, size_t count)
-{
-	unsigned int val = 0;
-	int ret = 0;
-
-	ret = kgsl_sysfs_store(buf, &val);
-	if (!ret && device)
-		device->prioritize_unrecoverable = (bool) val;
-
-	return (ssize_t) ret < 0 ? ret : count;
-}
-
 /* Show the snapshot_crashdumper request status */
 static ssize_t snapshot_crashdumper_show(struct kgsl_device *device, char *buf)
 {
@@ -1046,8 +1029,6 @@ struct kgsl_snapshot_attribute attr_##_name = { \
 static SNAPSHOT_ATTR(timestamp, 0444, timestamp_show, NULL);
 static SNAPSHOT_ATTR(faultcount, 0644, faultcount_show, faultcount_store);
 static SNAPSHOT_ATTR(force_panic, 0644, force_panic_show, force_panic_store);
-static SNAPSHOT_ATTR(prioritize_unrecoverable, 0644,
-		prioritize_unrecoverable_show, prioritize_unrecoverable_store);
 static SNAPSHOT_ATTR(snapshot_crashdumper, 0644, snapshot_crashdumper_show,
 	snapshot_crashdumper_store);
 static SNAPSHOT_ATTR(snapshot_legacy, 0644, snapshot_legacy_show,
@@ -1132,7 +1113,6 @@ int kgsl_device_snapshot_init(struct kgsl_device *device)
 	device->snapshot = NULL;
 	device->snapshot_faultcount = 0;
 	device->force_panic = 0;
-	device->prioritize_unrecoverable = true;
 	device->snapshot_crashdumper = 1;
 	device->snapshot_legacy = 0;
 
@@ -1155,11 +1135,6 @@ int kgsl_device_snapshot_init(struct kgsl_device *device)
 
 	ret  = sysfs_create_file(&device->snapshot_kobj,
 			&attr_force_panic.attr);
-	if (ret)
-		goto done;
-
-	ret = sysfs_create_file(&device->snapshot_kobj,
-			&attr_prioritize_unrecoverable.attr);
 	if (ret)
 		goto done;
 

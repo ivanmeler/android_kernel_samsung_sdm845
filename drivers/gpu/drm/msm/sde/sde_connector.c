@@ -1,4 +1,4 @@
-/* Copyright (c) 2016-2019, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2016-2017, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -18,7 +18,6 @@
 #include "sde_connector.h"
 #include "sde_encoder.h"
 #include <linux/backlight.h>
-#include <linux/string.h>
 #include "dsi_drm.h"
 #include "dsi_display.h"
 #include "sde_crtc.h"
@@ -52,9 +51,6 @@ static const struct drm_prop_enum_list e_topology_name[] = {
 	{SDE_RM_TOPOLOGY_DUALPIPE_3DMERGE_DSC,	"sde_dualpipemerge_dsc"},
 	{SDE_RM_TOPOLOGY_DUALPIPE_DSCMERGE,	"sde_dualpipe_dscmerge"},
 	{SDE_RM_TOPOLOGY_PPSPLIT,	"sde_ppsplit"},
-	{SDE_RM_TOPOLOGY_QUADPIPE_3DMERGE,	"sde_quadpipemerge"},
-	{SDE_RM_TOPOLOGY_QUADPIPE_DSCMERGE,	"sde_quadpipe_dscmerge"},
-	{SDE_RM_TOPOLOGY_QUADPIPE_3DMERGE_DSC,	"sde_quadpipe_3dmerge_dsc"}
 };
 static const struct drm_prop_enum_list e_topology_control[] = {
 	{SDE_RM_TOPCTL_RESERVE_LOCK,	"reserve_lock"},
@@ -96,19 +92,12 @@ static int sde_backlight_device_update_status(struct backlight_device *bd)
 	if (!bl_lvl && brightness)
 		bl_lvl = 1;
 
-	if (display->panel->bl_config.bl_update ==
-		BL_UPDATE_DELAY_UNTIL_FIRST_FRAME && !c_conn->allow_bl_update) {
-		c_conn->unset_bl_level = bl_lvl;
-		return 0;
-	}
-
 	if (c_conn->ops.set_backlight) {
 		event.type = DRM_EVENT_SYS_BACKLIGHT;
 		event.length = sizeof(u32);
 		msm_mode_object_event_notify(&c_conn->base.base,
 				c_conn->base.dev, &event, (u8 *)&brightness);
 		rc = c_conn->ops.set_backlight(c_conn->display, bl_lvl);
-		c_conn->unset_bl_level = 0;
 	}
 
 	return rc;
@@ -432,34 +421,21 @@ void sde_connector_schedule_status_work(struct drm_connector *connector,
 	if (!c_conn)
 		return;
 
-	/* Return if there is no change in ESD status check condition */
-	if (en == c_conn->esd_status_check)
-		return;
-
 	sde_connector_get_info(connector, &info);
 	if (c_conn->ops.check_status &&
 		(info.capabilities & MSM_DISPLAY_ESD_ENABLED)) {
-		if (en) {
-			u32 interval;
 
-			/*
-			 * If debugfs property is not set then take
-			 * default value
-			 */
-			interval = c_conn->esd_status_interval ?
-				c_conn->esd_status_interval :
-					STATUS_CHECK_INTERVAL_MS;
 #if !defined(CONFIG_DISPLAY_SAMSUNG)
+		if (en)
 			/* Schedule ESD status check */
 			schedule_delayed_work(&c_conn->status_work,
-				msecs_to_jiffies(interval));
+				msecs_to_jiffies(STATUS_CHECK_INTERVAL_MS));
+		else
+#else
+		if (!en)
 #endif
-			c_conn->esd_status_check = true;
-		} else {
 			/* Cancel any pending ESD status check */
 			cancel_delayed_work_sync(&c_conn->status_work);
-			c_conn->esd_status_check = false;
-		}
 	}
 }
 
@@ -477,6 +453,8 @@ static int _sde_connector_update_power_locked(struct sde_connector *c_conn)
 	switch (c_conn->dpms_mode) {
 	case DRM_MODE_DPMS_ON:
 		mode = c_conn->lp_mode;
+		if (mode == SDE_MODE_DPMS_LP1)
+			c_conn->first_doze = 1;
 		break;
 	case DRM_MODE_DPMS_STANDBY:
 		mode = SDE_MODE_DPMS_STANDBY;
@@ -514,12 +492,8 @@ static int _sde_connector_update_power_locked(struct sde_connector *c_conn)
 	}
 	c_conn->last_panel_power_mode = mode;
 
-	mutex_unlock(&c_conn->lock);
 	if (mode != SDE_MODE_DPMS_ON)
 		sde_connector_schedule_status_work(connector, false);
-	else
-		sde_connector_schedule_status_work(connector, true);
-	mutex_lock(&c_conn->lock);
 
 	return rc;
 }
@@ -545,15 +519,6 @@ static int _sde_connector_update_bl_scale(struct sde_connector *c_conn)
 
 	bl_config = &dsi_display->panel->bl_config;
 
-	if (dsi_display->panel->bl_config.bl_update ==
-		BL_UPDATE_DELAY_UNTIL_FIRST_FRAME && !c_conn->allow_bl_update) {
-		c_conn->unset_bl_level = bl_config->bl_level;
-		return 0;
-	}
-
-	if (c_conn->unset_bl_level)
-		bl_config->bl_level = c_conn->unset_bl_level;
-
 	if (c_conn->bl_scale > MAX_BL_SCALE_LEVEL)
 		bl_config->bl_scale = MAX_BL_SCALE_LEVEL;
 	else
@@ -568,13 +533,11 @@ static int _sde_connector_update_bl_scale(struct sde_connector *c_conn)
 		bl_config->bl_scale, bl_config->bl_scale_ad,
 		bl_config->bl_level);
 	rc = c_conn->ops.set_backlight(dsi_display, bl_config->bl_level);
-	c_conn->unset_bl_level = 0;
 
 	return rc;
 }
 
-static int _sde_connector_update_dirty_properties(
-				struct drm_connector *connector)
+static int _sde_connector_update_dirty_properties(struct drm_connector *connector)
 {
 	struct sde_connector *c_conn;
 	struct sde_connector_state *c_state;
@@ -608,11 +571,8 @@ static int _sde_connector_update_dirty_properties(
 		}
 	}
 
-	/*
-	 * Special handling for postproc properties and
-	 * for updating backlight if any unset backlight level is present
-	 */
-	if (c_conn->bl_scale_dirty || c_conn->unset_bl_level) {
+	/* Special handling for postproc properties */
+	if (c_conn->bl_scale_dirty) {
 		_sde_connector_update_bl_scale(c_conn);
 		c_conn->bl_scale_dirty = false;
 	}
@@ -626,11 +586,6 @@ int sde_connector_pre_kickoff(struct drm_connector *connector)
 	struct sde_connector_state *c_state;
 	struct msm_display_kickoff_params params;
 	int rc;
-#if defined(CONFIG_DISPLAY_SAMSUNG)
-	struct dsi_display *display;
-	struct samsung_display_driver_data *vdd;
-	u32 finger_mask_state;
-#endif
 
 	if (!connector) {
 		SDE_ERROR("invalid argument\n");
@@ -640,7 +595,7 @@ int sde_connector_pre_kickoff(struct drm_connector *connector)
 	c_conn = to_sde_connector(connector);
 	c_state = to_sde_connector_state(connector->state);
 	if (!c_conn->display) {
-		SDE_ERROR("invalid connector display\n");
+		SDE_ERROR("invalid argument\n");
 		return -EINVAL;
 	}
 
@@ -655,19 +610,6 @@ int sde_connector_pre_kickoff(struct drm_connector *connector)
 
 	params.rois = &c_state->rois;
 	params.hdr_meta = &c_state->hdr_meta;
-#if defined(CONFIG_DISPLAY_SAMSUNG)
-	/* SAMSUNG_FINGERPRINT */
-	display = c_conn->display;
-	vdd = display->panel->panel_private;
-	finger_mask_state = sde_connector_get_property(c_conn->base.state,
-			CONNECTOR_PROP_FINGERPRINT_MASK);
-	vdd->finger_mask_updated = false;
-	if (finger_mask_state != vdd->finger_mask) {
-		SDE_ERROR("[FINGER MASK]updated finger mask mode %d\n", finger_mask_state);
-		vdd->finger_mask_updated = true;
-		vdd->finger_mask = finger_mask_state;
-	}
-#endif
 
 	SDE_EVT32_VERBOSE(connector->base.id);
 
@@ -680,7 +622,6 @@ end:
 void sde_connector_helper_bridge_disable(struct drm_connector *connector)
 {
 	int rc;
-	struct sde_connector *c_conn = NULL;
 
 	if (!connector)
 		return;
@@ -691,49 +632,6 @@ void sde_connector_helper_bridge_disable(struct drm_connector *connector)
 				connector->base.id, rc);
 		SDE_EVT32(connector->base.id, SDE_EVTLOG_ERROR);
 	}
-
-	/* Disable ESD thread */
-	sde_connector_schedule_status_work(connector, false);
-
-	c_conn = to_sde_connector(connector);
-	if (c_conn->bl_device) {
-		c_conn->bl_device->props.power = FB_BLANK_POWERDOWN;
-		c_conn->bl_device->props.state |= BL_CORE_FBBLANK;
-		backlight_update_status(c_conn->bl_device);
-	}
-
-	c_conn->allow_bl_update = false;
-}
-
-void sde_connector_helper_bridge_enable(struct drm_connector *connector)
-{
-	struct sde_connector *c_conn = NULL;
-	struct dsi_display *display;
-
-	if (!connector)
-		return;
-
-	c_conn = to_sde_connector(connector);
-	display = (struct dsi_display *) c_conn->display;
-
-	/*
-	 * Special handling for some panels which need atleast
-	 * one frame to be transferred to GRAM before enabling backlight.
-	 * So delay backlight update to these panels until the
-	 * first frame commit is received from the HW.
-	 */
-	if (display->panel->bl_config.bl_update ==
-				BL_UPDATE_DELAY_UNTIL_FIRST_FRAME)
-		sde_encoder_wait_for_event(c_conn->encoder,
-				MSM_ENC_TX_COMPLETE);
-	c_conn->allow_bl_update = true;
-
-	if (c_conn->bl_device) {
-		c_conn->bl_device->props.power = FB_BLANK_UNBLANK;
-		c_conn->bl_device->props.state &= ~BL_CORE_FBBLANK;
-		backlight_update_status(c_conn->bl_device);
-	}
-	c_conn->panel_dead = false;
 }
 
 int sde_connector_clk_ctrl(struct drm_connector *connector, bool enable)
@@ -1061,38 +959,34 @@ static int _sde_connector_set_ext_hdr_info(
 	struct sde_connector_state *c_state,
 	void *usr_ptr)
 {
-	int rc = 0;
 	struct drm_connector *connector;
 	struct drm_msm_ext_hdr_metadata *hdr_meta;
 	int i;
 
 	if (!c_conn || !c_state) {
 		SDE_ERROR_CONN(c_conn, "invalid args\n");
-		rc = -EINVAL;
-		goto end;
+		return -EINVAL;
 	}
 
 	connector = &c_conn->base;
 
 	if (!connector->hdr_supported) {
 		SDE_ERROR_CONN(c_conn, "sink doesn't support HDR\n");
-		rc = -ENOTSUPP;
-		goto end;
+		return -ENOTSUPP;
 	}
 
 	memset(&c_state->hdr_meta, 0, sizeof(c_state->hdr_meta));
 
 	if (!usr_ptr) {
 		SDE_DEBUG_CONN(c_conn, "hdr metadata cleared\n");
-		goto end;
+		return 0;
 	}
 
 	if (copy_from_user(&c_state->hdr_meta,
 		(void __user *)usr_ptr,
 			sizeof(*hdr_meta))) {
 		SDE_ERROR_CONN(c_conn, "failed to copy hdr metadata\n");
-		rc = -EFAULT;
-		goto end;
+		return -EFAULT;
 	}
 
 	hdr_meta = &c_state->hdr_meta;
@@ -1115,10 +1009,7 @@ static int _sde_connector_set_ext_hdr_info(
 				   hdr_meta->display_primaries_y[i]);
 	}
 
-	if (c_conn->ops.config_hdr)
-		rc = c_conn->ops.config_hdr(c_conn->display, c_state);
-end:
-	return rc;
+	return 0;
 }
 
 static int sde_connector_atomic_set_property(struct drm_connector *connector,
@@ -1178,7 +1069,7 @@ static int sde_connector_atomic_set_property(struct drm_connector *connector,
 			goto end;
 		}
 
-		rc = copy_to_user((uint64_t __user *)(uintptr_t)val, &fence_fd,
+		rc = copy_to_user((uint64_t __user *)val, &fence_fd,
 			sizeof(uint64_t));
 		if (rc) {
 			SDE_ERROR("copy to user failed rc:%d\n", rc);
@@ -1189,8 +1080,7 @@ static int sde_connector_atomic_set_property(struct drm_connector *connector,
 		}
 		break;
 	case CONNECTOR_PROP_ROI_V1:
-		rc = _sde_connector_set_roi_v1(c_conn, c_state,
-				(void *)(uintptr_t)val);
+		rc = _sde_connector_set_roi_v1(c_conn, c_state, (void *)val);
 		if (rc)
 			SDE_ERROR_CONN(c_conn, "invalid roi_v1, rc: %d\n", rc);
 		break;
@@ -1213,7 +1103,7 @@ static int sde_connector_atomic_set_property(struct drm_connector *connector,
 
 	if (idx == CONNECTOR_PROP_HDR_METADATA) {
 		rc = _sde_connector_set_ext_hdr_info(c_conn,
-			c_state, (void *)(uintptr_t)val);
+			c_state, (void *)val);
 		if (rc)
 			SDE_ERROR_CONN(c_conn, "cannot set hdr info %d\n", rc);
 	}
@@ -1309,7 +1199,7 @@ void sde_connector_prepare_fence(struct drm_connector *connector)
 }
 
 void sde_connector_complete_commit(struct drm_connector *connector,
-		ktime_t ts, enum sde_fence_event fence_event)
+		ktime_t ts)
 {
 	if (!connector) {
 		SDE_ERROR("invalid connector\n");
@@ -1317,8 +1207,7 @@ void sde_connector_complete_commit(struct drm_connector *connector,
 	}
 
 	/* signal connector's retire fence */
-	sde_fence_signal(&to_sde_connector(connector)->retire_fence,
-			ts, fence_event);
+	sde_fence_signal(&to_sde_connector(connector)->retire_fence, ts, false);
 }
 
 void sde_connector_commit_reset(struct drm_connector *connector, ktime_t ts)
@@ -1329,8 +1218,7 @@ void sde_connector_commit_reset(struct drm_connector *connector, ktime_t ts)
 	}
 
 	/* signal connector's retire fence */
-	sde_fence_signal(&to_sde_connector(connector)->retire_fence,
-			ts, SDE_FENCE_RESET_TIMELINE);
+	sde_fence_signal(&to_sde_connector(connector)->retire_fence, ts, true);
 }
 
 static void sde_connector_update_hdr_props(struct drm_connector *connector)
@@ -1515,157 +1403,6 @@ int sde_connector_helper_reset_custom_properties(
 	return 0;
 }
 
-int sde_connector_get_panel_vfp(struct drm_connector *connector,
-	struct drm_display_mode *mode)
-{
-	struct sde_connector *c_conn;
-	int vfp = -EINVAL;
-
-	if (!connector || !mode) {
-		SDE_ERROR("invalid connector\n");
-		return vfp;
-	}
-	c_conn = to_sde_connector(connector);
-	if (!c_conn->ops.get_panel_vfp)
-		return vfp;
-
-	vfp = c_conn->ops.get_panel_vfp(c_conn->display,
-		mode->hdisplay, mode->vdisplay);
-	if (vfp <= 0)
-		SDE_ERROR("Failed get_panel_vfp %d\n", vfp);
-
-	return vfp;
-}
-
-static int _sde_debugfs_conn_cmd_tx_open(struct inode *inode, struct file *file)
-{
-	/* non-seekable */
-	file->private_data = inode->i_private;
-	return nonseekable_open(inode, file);
-}
-
-static ssize_t _sde_debugfs_conn_cmd_tx_sts_read(struct file *file,
-		char __user *buf, size_t count, loff_t *ppos)
-{
-	struct drm_connector *connector = file->private_data;
-	struct sde_connector *c_conn;
-	char buffer[MAX_CMD_PAYLOAD_SIZE];
-	int blen = 0;
-
-	if (*ppos)
-		return 0;
-
-	if (!connector) {
-		SDE_ERROR("invalid argument, conn is NULL\n");
-		return 0;
-	}
-
-	c_conn = to_sde_connector(connector);
-
-	mutex_lock(&c_conn->lock);
-	blen = snprintf(buffer, MAX_CMD_PAYLOAD_SIZE,
-		"last_cmd_tx_sts:0x%x",
-		c_conn->last_cmd_tx_sts);
-	mutex_unlock(&c_conn->lock);
-
-	SDE_DEBUG("output: %s\n", buffer);
-	if (blen <= 0) {
-		SDE_ERROR("snprintf failed, blen %d\n", blen);
-		return 0;
-	}
-
-	if (copy_to_user(buf, buffer, blen)) {
-		SDE_ERROR("copy to user buffer failed\n");
-		return -EFAULT;
-	}
-
-	*ppos += blen;
-	return blen;
-}
-
-static ssize_t _sde_debugfs_conn_cmd_tx_write(struct file *file,
-			const char __user *p, size_t count, loff_t *ppos)
-{
-	struct drm_connector *connector = file->private_data;
-	struct sde_connector *c_conn;
-	char *input, *token, *input_copy, *input_dup = NULL;
-	const char *delim = " ";
-	u32 buf_size = 0;
-	char buffer[MAX_CMD_PAYLOAD_SIZE];
-	int rc = 0, strtoint;
-
-	if (*ppos || !connector) {
-		SDE_ERROR("invalid argument(s), conn %d\n", connector != NULL);
-		return 0;
-	}
-
-	c_conn = to_sde_connector(connector);
-
-	if (!c_conn->ops.cmd_transfer) {
-		SDE_ERROR("no cmd transfer support for connector name %s\n",
-				c_conn->name);
-		return 0;
-	}
-
-	input = kmalloc(count + 1, GFP_KERNEL);
-	if (!input)
-		return -ENOMEM;
-
-	if (copy_from_user(input, p, count)) {
-		SDE_ERROR("copy from user failed\n");
-		rc = -EFAULT;
-		goto end;
-	}
-	input[count] = '\0';
-
-	SDE_DEBUG("input: %s\n", input);
-
-	input_copy = kstrdup(input, GFP_KERNEL);
-	if (!input_copy) {
-		rc = -ENOMEM;
-		goto end;
-	}
-
-	input_dup = input_copy;
-	token = strsep(&input_copy, delim);
-	while (token) {
-		rc = kstrtoint(token, 0, &strtoint);
-		if (rc) {
-			SDE_ERROR("input buffer conversion failed\n");
-			goto end;
-		}
-
-		if (buf_size >= MAX_CMD_PAYLOAD_SIZE) {
-			SDE_ERROR("buffer size exceeding the limit %d\n",
-					MAX_CMD_PAYLOAD_SIZE);
-			goto end;
-		}
-		buffer[buf_size++] = (strtoint & 0xff);
-		token = strsep(&input_copy, delim);
-	}
-	SDE_DEBUG("command packet size in bytes: %u\n", buf_size);
-	if (!buf_size)
-		goto end;
-
-	mutex_lock(&c_conn->lock);
-	rc = c_conn->ops.cmd_transfer(c_conn->display, buffer,
-			buf_size);
-	c_conn->last_cmd_tx_sts = !rc ? true : false;
-	mutex_unlock(&c_conn->lock);
-
-	rc = count;
-end:
-	kfree(input_dup);
-	kfree(input);
-	return rc;
-}
-
-static const struct file_operations conn_cmd_tx_fops = {
-	.open =		_sde_debugfs_conn_cmd_tx_open,
-	.read =		_sde_debugfs_conn_cmd_tx_sts_read,
-	.write =	_sde_debugfs_conn_cmd_tx_write,
-};
-
 #ifdef CONFIG_DEBUG_FS
 /**
  * sde_connector_init_debugfs - initialize connector debugfs
@@ -1685,28 +1422,15 @@ static int sde_connector_init_debugfs(struct drm_connector *connector)
 
 	sde_connector_get_info(connector, &info);
 	if (sde_connector->ops.check_status &&
-		(info.capabilities & MSM_DISPLAY_ESD_ENABLED)) {
+		(info.capabilities & MSM_DISPLAY_ESD_ENABLED))
 		debugfs_create_u32("force_panel_dead", 0600,
 				connector->debugfs_entry,
 				&sde_connector->force_panel_dead);
-		debugfs_create_u32("esd_status_interval", 0600,
-				connector->debugfs_entry,
-				&sde_connector->esd_status_interval);
-	}
 
 	if (!debugfs_create_bool("fb_kmap", 0600, connector->debugfs_entry,
 			&sde_connector->fb_kmap)) {
 		SDE_ERROR("failed to create connector fb_kmap\n");
 		return -ENOMEM;
-	}
-
-	if (sde_connector->ops.cmd_transfer) {
-		if (!debugfs_create_file("tx_cmd", 0600,
-			connector->debugfs_entry,
-			connector, &conn_cmd_tx_fops)) {
-			SDE_ERROR("failed to create connector cmd_tx\n");
-			return -ENOMEM;
-		}
 	}
 
 	return 0;
@@ -1835,78 +1559,12 @@ sde_connector_best_encoder(struct drm_connector *connector)
 	return c_conn->encoder;
 }
 
-static void _sde_connector_report_panel_dead(struct sde_connector *conn)
-{
-	struct drm_event event;
-
-	if (!conn)
-		return;
-
-	/* Panel dead notification can come:
-	 * 1) ESD thread
-	 * 2) Commit thread (if TE stops coming)
-	 * So such case, avoid failure notification twice.
-	 */
-	if (conn->panel_dead)
-		return;
-
-	conn->panel_dead = true;
-	event.type = DRM_EVENT_PANEL_DEAD;
-	event.length = sizeof(bool);
-	msm_mode_object_event_notify(&conn->base.base,
-		conn->base.dev, &event, (u8 *)&conn->panel_dead);
-	sde_encoder_display_failure_notification(conn->encoder);
-	SDE_EVT32(SDE_EVTLOG_ERROR);
-	SDE_ERROR("esd check failed report PANEL_DEAD conn_id: %d enc_id: %d\n",
-			conn->base.base.id, conn->encoder->base.id);
-
-#if defined(CONFIG_DISPLAY_SAMSUNG)
-	{
-		struct samsung_display_driver_data *vdd = samsung_get_vdd();
-		vdd->panel_dead = true;
-	}
-#endif
-}
-
-int sde_connector_esd_status(struct drm_connector *conn)
-{
-	struct sde_connector *sde_conn = NULL;
-	int ret = 0;
-
-	if (!conn)
-		return ret;
-
-	sde_conn = to_sde_connector(conn);
-	if (!sde_conn || !sde_conn->ops.check_status)
-		return ret;
-
-	/* protect this call with ESD status check call */
-	mutex_lock(&sde_conn->lock);
-#if defined(CONFIG_DISPLAY_SAMSUNG)
-	ret = sde_conn->ops.check_status(sde_conn->display, false);
-#else
-	ret = sde_conn->ops.check_status(sde_conn->display, true);
-#endif
-	mutex_unlock(&sde_conn->lock);
-
-	if (ret <= 0) {
-		/* cancel if any pending esd work */
-		sde_connector_schedule_status_work(conn, false);
-		_sde_connector_report_panel_dead(sde_conn);
-		ret = -ETIMEDOUT;
-	} else {
-		SDE_DEBUG("Successfully received TE from panel\n");
-		ret = 0;
-	}
-	SDE_EVT32(ret);
-
-	return ret;
-}
-
 static void sde_connector_check_status_work(struct work_struct *work)
 {
 	struct sde_connector *conn;
+	struct drm_event event;
 	int rc = 0;
+	bool panel_dead = false;
 
 	conn = container_of(to_delayed_work(work),
 			struct sde_connector, status_work);
@@ -1923,7 +1581,7 @@ static void sde_connector_check_status_work(struct work_struct *work)
 		return;
 	}
 
-	rc = conn->ops.check_status(conn->display, false);
+	rc = conn->ops.check_status(conn->display);
 	mutex_unlock(&conn->lock);
 
 	if (conn->force_panel_dead) {
@@ -1933,23 +1591,30 @@ static void sde_connector_check_status_work(struct work_struct *work)
 	}
 
 	if (rc > 0) {
-		u32 interval;
-
 		SDE_DEBUG("esd check status success conn_id: %d enc_id: %d\n",
 				conn->base.base.id, conn->encoder->base.id);
-
-		/* If debugfs property is not set then take default value */
-		interval = conn->esd_status_interval ?
-			conn->esd_status_interval : STATUS_CHECK_INTERVAL_MS;
 #if !defined(CONFIG_DISPLAY_SAMSUNG)
 		schedule_delayed_work(&conn->status_work,
-			msecs_to_jiffies(interval));
+			msecs_to_jiffies(STATUS_CHECK_INTERVAL_MS));
 #endif
 		return;
 	}
 
 status_dead:
-	_sde_connector_report_panel_dead(conn);
+	SDE_EVT32(rc, SDE_EVTLOG_ERROR);
+	SDE_ERROR("esd check failed report PANEL_DEAD conn_id: %d enc_id: %d\n",
+			conn->base.base.id, conn->encoder->base.id);
+#if defined(CONFIG_DISPLAY_SAMSUNG)
+	{
+		struct samsung_display_driver_data *vdd = samsung_get_vdd();
+		vdd->panel_dead = true;
+	}
+#endif
+	panel_dead = true;
+	event.type = DRM_EVENT_PANEL_DEAD;
+	event.length = sizeof(u32);
+	msm_mode_object_event_notify(&conn->base.base,
+		conn->base.dev, &event, (u8 *)&panel_dead);
 }
 
 static const struct drm_connector_helper_funcs sde_connector_helper_ops = {
@@ -1998,9 +1663,6 @@ static int sde_connector_populate_mode_info(struct drm_connector *conn,
 		}
 
 		sde_kms_info_add_keystr(info, "mode_name", mode->name);
-
-		sde_kms_info_add_keyint(info, "bit_clk_rate",
-					mode_info.clk_rate);
 
 		topology_idx = (int)sde_rm_get_topology_name(
 							mode_info.topology);
@@ -2164,6 +1826,7 @@ struct drm_connector *sde_connector_init(struct drm_device *dev,
 	c_conn->encoder = encoder;
 	c_conn->panel = panel;
 	c_conn->display = display;
+	c_conn->first_doze = 0;
 
 	c_conn->dpms_mode = DRM_MODE_DPMS_ON;
 	c_conn->lp_mode = 0;
@@ -2310,12 +1973,7 @@ struct drm_connector *sde_connector_init(struct drm_device *dev,
 	msm_property_install_range(&c_conn->property_info, "bl_scale",
 		0x0, 0, MAX_BL_SCALE_LEVEL, MAX_BL_SCALE_LEVEL,
 		CONNECTOR_PROP_BL_SCALE);
-#if defined(CONFIG_DISPLAY_SAMSUNG)
-	/* SAMSUNG_FINGERPRINT */
-	msm_property_install_range(&c_conn->property_info, "fingerprint_mask",
-		0x0, 0, 100, 0,
-		CONNECTOR_PROP_FINGERPRINT_MASK);
-#endif
+
 	msm_property_install_range(&c_conn->property_info, "ad_bl_scale",
 		0x0, 0, MAX_AD_BL_SCALE_LEVEL, MAX_AD_BL_SCALE_LEVEL,
 		CONNECTOR_PROP_AD_BL_SCALE);

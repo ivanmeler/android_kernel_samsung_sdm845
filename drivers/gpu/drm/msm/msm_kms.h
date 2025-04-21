@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016-2018, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2016-2017, The Linux Foundation. All rights reserved.
  * Copyright (C) 2013 Red Hat
  * Author: Rob Clark <robdclark@gmail.com>
  *
@@ -38,8 +38,6 @@
 #define MSM_MODE_FLAG_SEAMLESS_DMS			(1<<2)
 /* Request to switch the fps */
 #define MSM_MODE_FLAG_SEAMLESS_VRR			(1<<3)
-/* Request to switch the bit clk */
-#define MSM_MODE_FLAG_SEAMLESS_DYN_CLK			(1<<4)
 
 
 #if defined(CONFIG_DISPLAY_SAMSUNG)
@@ -125,8 +123,6 @@ struct msm_kms_funcs {
 			unsigned int domain);
 	/* handle continuous splash  */
 	int (*cont_splash_config)(struct msm_kms *kms);
-	/* check for continuous splash status */
-	bool (*check_for_splash)(struct msm_kms *kms);
 #if defined(CONFIG_DISPLAY_SAMSUNG)
 	int (*ss_callback)(struct drm_device *dev,
 			enum mdss_intf_events event, void *arg);
@@ -195,13 +191,6 @@ static inline bool msm_is_mode_dynamic_fps(const struct drm_display_mode *mode)
 static inline bool msm_is_mode_seamless_vrr(const struct drm_display_mode *mode)
 {
 	return mode ? (mode->private_flags & MSM_MODE_FLAG_SEAMLESS_VRR)
-		: false;
-}
-
-static inline bool msm_is_mode_seamless_dyn_clk(
-					const struct drm_display_mode *mode)
-{
-	return mode ? (mode->private_flags & MSM_MODE_FLAG_SEAMLESS_DYN_CLK)
 		: false;
 }
 

@@ -25,8 +25,8 @@ Copyright (C) 2012, Samsung Electronics. All rights reserved.
  *
  */
 
-#ifndef SS_DSI_PANEL_COMMON_H
-#define SS_DSI_PANEL_COMMON_H
+#ifndef SAMSUNG_DSI_PANEL_COMMON_H
+#define SAMSUNG_DSI_PANEL_COMMON_H
 
 #include <linux/module.h>
 #include <linux/of.h>
@@ -73,9 +73,6 @@ Copyright (C) 2012, Samsung Electronics. All rights reserved.
 #include "ss_self_display_common.h"
 #include "ss_ddi_poc_common.h"
 #include "ss_copr_common.h"
-
-#include "ss_interpolation_common.h"
-#include "ss_flash_table_data_common.h"
 
 #if defined(CONFIG_SEC_DEBUG)
 #include <linux/sec_debug.h>
@@ -133,21 +130,14 @@ extern bool enable_pr_debug;
 #define OTHERLINE_WORKQ_CNT 70
 
 //#define DYNAMIC_DSI_CLK
-#define USE_CURRENT_BL_LEVEL 0xFFFFFF
 
 extern int poweroff_charging;
 
 enum PANEL_LEVEL_KEY {
-	LEVEL_KEY_NONE = 0,
-	LEVEL0_KEY = BIT(0),
-	LEVEL1_KEY = BIT(1),
-	LEVEL2_KEY = BIT(2),
-};
-
-enum backlight_origin {
-	BACKLIGHT_NORMAL,
-	BACKLIGHT_FINGERMASK_ON,
-	BACKLIGHT_FINGERMASK_OFF,
+	LEVEL_KEY_NONE,
+	LEVEL0_KEY,
+	LEVEL1_KEY,
+	LEVEL2_KEY,
 };
 
 enum mipi_samsung_cmd_map_list {
@@ -233,21 +223,6 @@ struct osc_te_fitting_info {
 	struct te_fitting_lut *lut[OSC_TE_FITTING_LUT_MAX];
 };
 
-/* DDI CMD log buffer max size is 512 bytes.
- * But, qct display driver limit max read size to 255 bytes (0xFF)
- * due to panel dtsi. panel dtsi determines length with one byte.
- * samsung,ldi_debug_logbuf_rx_cmds_revA   = [06 01 00 00 00 00 01 9C FF 00];
- */
-
-#define DDI_CMD_LOGBUF_SIZE	255
-struct te_period_check {
-	struct work_struct te_work;
-	int te_irq;
-	int te_cnt;
-	char cmd_log[DDI_CMD_LOGBUF_SIZE];
-	bool is_working; /* block queueing work while working */
-};
-
 struct panel_lpm_info {
 	u8 origin_mode;
 	u8 ver;
@@ -258,7 +233,6 @@ struct panel_lpm_info {
 };
 
 struct samsung_display_driver_data *samsung_get_vdd(void);
-struct samsung_display_driver_data *ss_get_vdd_by_ndx(int ndx);
 
 struct clk_timing_table {
 	int tab_size;
@@ -299,19 +273,9 @@ struct candela_map_table {
 	int *idx;
 	int *from;
 	int *end;
-
-	/*
-		cd :
-		This is cacultated brightness to standardize brightness formula.
-	*/
 	int *cd;
-
-	/* 	interpolation_cd :
-		cd value is only calcuated brightness by formula.
-		This is real measured brightness on panel.
-	*/
 	int *interpolation_cd;
-
+	int *bkl;
 	int min_lv;
 	int max_lv;
 };
@@ -383,68 +347,6 @@ struct samsung_display_dtsi_data {
 	/* Backlight IC discharge delay */
 	int blic_discharging_delay_tft;
 	int cabc_delay;
-
-	/*
-	*	INTERPOLATION(AOR & IRC)
-	*/
-	int hbm_brightness_step;
-	int normal_brightness_step;
-	int hmd_brightness_step;
-
-	int gamma_size;
-	int aor_size;
-	int vint_size;
-	int elvss_size;
-	int irc_size;
-
-	int flash_table_hbm_aor_offset;
-	int flash_table_hbm_vint_offset;
-	int flash_table_hbm_elvss_offset;
-	int flash_table_hbm_irc_offset;
-
-	int flash_table_normal_gamma_offset;
-	int flash_table_normal_aor_offset;
-	int flash_table_normal_vint_offset;
-	int flash_table_normal_elvss_offset;
-	int flash_table_normal_irc_offset;
-
-	int flash_table_hmd_gamma_offset;
-	int flash_table_hmd_aor_offset;
-
-	/*
-	 *	Flash gamma feature
-	*/
-	bool flash_gamma_support;
-
-	/* Below things are emmc read address */
-	int flash_gamma_write_check_address;
-
-	/* Here is bank base address */
-	int flash_gamma_bank_start_len;
-	int *flash_gamma_bank_start;
-	int flash_gamma_bank_end_len;
-	int *flash_gamma_bank_end;
-
-	/* Below is offset address of base bank */
-	int flash_gamma_check_sum_start_offset;
-	int flash_gamma_check_sum_end_offset;
-
-	/* For support 0xC8 register integrity */
-	int flash_gamma_0xc8_start_offset;
-	int flash_gamma_0xc8_end_offset;
-	int flash_gamma_0xc8_size;
-	int flash_gamma_0xc8_check_sum_start_offset;
-	int flash_gamma_0xc8_check_sum_end_offset;
-
-	/* For MCD flash data */
-	int flash_MCD1_R_address;
-	int flash_MCD2_R_address;
-	int flash_MCD1_L_address;
-	int flash_MCD2_L_address;
-
-	/*
-	 *	Flash gamma feature end
-	*/
 };
 
 struct display_status {
@@ -484,19 +386,6 @@ struct esd_recovery {
 	u8 num_of_gpio;
 	unsigned long irqflags[MAX_ESD_GPIO];
 	void (*esd_irq_enable)(bool enable, bool nosync, void *data);
-};
-
-struct folder_common_data {
-	int selected_panel;
-	bool hall_ic_status;
-	bool folder_sel_status;
-	bool folder_flipping;
-	bool folder_flip_add_more_delay;
-	bool secure_display_mode;
-	struct workqueue_struct *folder_common_workq;
-	struct delayed_work delay_disp_on_work;
-	struct mutex folder_com_data_lock;
-	struct completion secure_display_done;
 };
 
 /* Panel LPM(ALPM/HLPM) status flag */
@@ -559,9 +448,6 @@ struct panel_func {
 	int (*samsung_irc_read)(struct samsung_display_driver_data *vdd);
 	int (*samsung_mdnie_read)(struct samsung_display_driver_data *vdd);
 	int (*samsung_smart_dimming_init)(struct samsung_display_driver_data *vdd);
-
-	int (*samsung_flash_gamma_support)(struct samsung_display_driver_data *vdd);
-	int (*samsung_interpolation_init)(struct samsung_display_driver_data *vdd, enum INTERPOLATION_MODE mode);
 
 	struct smartdim_conf *(*samsung_smart_get_conf)(void);
 
@@ -641,7 +527,7 @@ struct panel_func {
 	void (*samsung_cover_control)(struct samsung_display_driver_data *vdd);
 
 	/* POC */
-	int (*samsung_poc_ctrl)(struct samsung_display_driver_data *vdd, u32 cmd, const char *buf);
+	int (*samsung_poc_ctrl)(struct samsung_display_driver_data *vdd, u32 cmd);
 
 	/* Gram Checksum Test */
 	int (*samsung_gct_read)(struct samsung_display_driver_data *vdd);
@@ -708,7 +594,6 @@ enum {
 	POC_OP_ERASE_WRITE_IMG,
 	POC_OP_ERASE_WRITE_TEST,
 	POC_OP_BACKUP,
-	POC_OP_ERASE_SECTOR = 7,
 	POC_OP_CHECKSUM,
 	POC_OP_CHECK_FLASH,
 	POC_OP_SET_FLASH_WRITE,
@@ -782,32 +667,9 @@ struct POC {
 	u32 rpos;
 	u32 rsize;
 
-	int image_size;
-
-	/* ERASE */
+	u32 erase_delay_ms; /* msleep */
 	u32 erase_delay_us; /* usleep */
-	int erase_sector_addr_idx[3];
-
-	/* WRITE */
 	u32 write_delay_us; /* usleep */
-	int write_loop_cnt;
-	int write_data_size;
-	int write_addr_idx[3];
-
-	/* READ */
-	u32 read_delay_us;	/* usleep */
-	int read_addr_idx[3];
-
-	/* MCA (checksum) */
-	u8 *mca_data;
-	int mca_size;
-
-	/* POC Function */
-	int (*poc_write)(struct samsung_display_driver_data *vdd, u8 *data, u32 pos, u32 size);
-	int (*poc_read)(struct samsung_display_driver_data *vdd, u8 *buf, u32 pos, u32 size);
-	int (*poc_erase)(struct samsung_display_driver_data *vdd, u32 erase_pos, u32 erase_size, u32 target_pos);
-
-	void (*poc_comp)(struct samsung_display_driver_data *vdd);
 };
 
 #define GCT_RES_CHECKSUM_PASS	(1)
@@ -841,18 +703,6 @@ struct ss_exclusive_mipi_tx {
 	struct mutex ex_tx_lock;
 	int enable; /* This shuold be set in ex_tx_lock lock */
 	wait_queue_head_t ex_tx_waitq;
-
-	/*
-		To allow frame update under exclusive mode.
-		Please be careful & Check exclusive cmds allow 2C&3C or othere value at frame header.
-	*/
-	int permit_frame_update;
-};
-
-struct brightness_info {
-	/* SAMSUNG_FINGERPRINT */
-	int finger_mask_bl_level;
-	int finger_mask_hbm_on;
 };
 
 /*
@@ -902,13 +752,6 @@ struct samsung_display_driver_data {
 	int panel_revision;
 
 	char *panel_vendor;
-
-	/* SAMSUNG_FINGERPRINT */
-	bool support_optical_fingerprint;
-	bool finger_mask_updated;
-	int finger_mask;
-	int panel_hbm_entry_delay; //hbm entry delay/ unit = vsync
-	struct lcd_device *lcd_dev;
 
 	int recovery_boot_mode;
 
@@ -999,7 +842,6 @@ struct samsung_display_driver_data {
 	 * OSC TE fitting info
 	 */
 	struct osc_te_fitting_info te_fitting_info;
-	struct te_period_check te_check;
 
 	/*
 	 *  HMT
@@ -1118,14 +960,16 @@ struct samsung_display_driver_data {
 
 	struct gram_checksum_test gct;
 
-	/* folder hall ic */
+	/* hall ic */
 	bool support_hall_ic;
-	bool folder_need_delay_disp_on;
+	int hall_ic_status;
+	int hall_ic_mode_change_trigger;
+	bool hall_ic_status_pending;
+	bool hall_ic_status_unhandled;
 	struct notifier_block hall_ic_notifier_display;
 	bool lcd_flip_not_refresh;
 	u32 lcd_flip_delay_ms;
-	struct mutex folder_switch_lock;
-	struct folder_common_data *folder_com;
+	struct delayed_work delay_disp_on_work;
 
 	enum ss_panel_pwr_state panel_state;
 
@@ -1149,17 +993,6 @@ struct samsung_display_driver_data {
 	bool panel_dead;
 
 	int read_panel_status_from_lk;
-
-	/* AOR & IRC Interpolation feature */
-	struct workqueue_struct *flash_br_workqueue;
-	struct delayed_work flash_br_work;
-	struct brightness_data_info panel_br_info;
-	struct ss_interpolation flash_itp;
-	struct ss_interpolation table_itp;
-	int table_interpolation_loaded;
-
-	/* Brightness */
-	struct brightness_info br;
 };
 
 extern struct list_head vdds_list;
@@ -1172,7 +1005,6 @@ void ss_set_max_cpufreq(struct samsung_display_driver_data *vdd,
 void ss_set_exclusive_tx_packet(
 		struct samsung_display_driver_data *vdd,
 		enum dsi_cmd_set_type cmd, int pass);
-void ss_set_exclusive_tx_lock_from_qct(struct samsung_display_driver_data *vdd, bool lock);
 int ss_send_cmd(struct samsung_display_driver_data *vdd,
 		enum dsi_cmd_set_type cmd);
 int ss_write_ddi_ram(struct samsung_display_driver_data *vdd,
@@ -1222,14 +1054,9 @@ extern struct dsi_status_data *pstatus_data;
 int hmt_enable(struct samsung_display_driver_data *vdd);
 int hmt_reverse_update(struct samsung_display_driver_data *vdd, int enable);
 
-/* FOLDER HALL IC FUNCTION */
+/* HALL IC FUNCTION */
 int samsung_display_hall_ic_status(struct notifier_block *nb,
 		unsigned long hall_ic, void *data);
-void ss_sync_panels_vdd(struct samsung_display_driver_data *vdd_old, struct samsung_display_driver_data *vdd);
-void ss_selected_panel_set(int ndx);
-int ss_selected_panel_get(void);
-struct samsung_display_driver_data * ss_folder_panel_flip(struct samsung_display_driver_data * vdd);
-void ss_noti_hal_to_flip(void);
 
 /* CORP CALC */
 void ss_copr_calc_work(struct work_struct *work);
@@ -1262,7 +1089,7 @@ int read_line(char *src, char *buf, int *pos, int len);
 #define HBM_CE_MODE 9
 
 /* BRIGHTNESS RELATED FUNCTION */
-int ss_brightness_dcs(struct samsung_display_driver_data *vdd, int level, int backlight_origin);
+int ss_brightness_dcs(struct samsung_display_driver_data *vdd, int level, int lock);
 void ss_brightness_tft_pwm(struct samsung_display_driver_data *vdd, int level);
 void update_packet_level_key_enable(struct samsung_display_driver_data *vdd,
 		struct dsi_cmd_desc *packet, int *cmd_cnt, int level_key);
@@ -1271,10 +1098,6 @@ void update_packet_level_key_disable(struct samsung_display_driver_data *vdd,
 int ss_single_transmission_packet(struct dsi_panel_cmd_set *cmds);
 
 int ss_set_backlight(struct samsung_display_driver_data *vdd, u32 bl_lvl);
-bool is_hbm_level(struct samsung_display_driver_data *vdd);
-
-/* SAMSUNG_FINGERPRINT */
-void ss_send_hbm_fingermask_image_tx(struct samsung_display_driver_data *vdd, bool on);
 
 /* HMT BRIGHTNESS */
 int ss_brightness_dcs_hmt(struct samsung_display_driver_data *vdd, int level);
@@ -1530,7 +1353,7 @@ static inline struct samsung_display_driver_data *ss_check_hall_ic_get_vdd(
 	if (!vdd->support_hall_ic)
 		return vdd;
 
-	if (vdd->folder_com->hall_ic_status == HALL_IC_OPEN)
+	if (vdd->hall_ic_status == HALL_IC_OPEN)
 		ndx = PRIMARY_DISPLAY_NDX;
 	else
 		ndx = SECONDARY_DISPLAY_NDX;
@@ -1655,11 +1478,6 @@ static inline bool ss_is_panel_on_ready(struct samsung_display_driver_data *vdd)
 	return (vdd->panel_state == PANEL_PWR_ON_READY);
 }
 
-static inline bool ss_is_ready_to_send_cmd(struct samsung_display_driver_data *vdd)
-{
-	return ((vdd->panel_state == PANEL_PWR_ON) || (vdd->panel_state == PANEL_PWR_LPM));
-}
-
 static inline bool ss_is_panel_off(struct samsung_display_driver_data *vdd)
 {
 //	struct dsi_panel *panel = GET_DSI_PANEL(vdd);
@@ -1667,7 +1485,6 @@ static inline bool ss_is_panel_off(struct samsung_display_driver_data *vdd)
 	// panel_initialized is set to true when panel is on,
 	// and is set to fase when panel is off
 //	return dsi_panel_initialized(panel);
-
 	return (vdd->panel_state == PANEL_PWR_OFF);
 }
 
@@ -1763,11 +1580,6 @@ extern char *cmd_set_prop_map[SS_DSI_CMD_SET_MAX];
 static inline char *ss_get_cmd_name(enum dsi_cmd_set_type type)
 {
 	return cmd_set_prop_map[type];
-}
-
-static inline bool __must_check SS_IS_CMDS_NULL(struct dsi_panel_cmd_set *set)
-{
-	return unlikely(!set) || unlikely(!set->cmds);
 }
 
 static inline struct dsi_panel_cmd_set *ss_get_cmds(

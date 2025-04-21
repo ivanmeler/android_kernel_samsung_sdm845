@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2015-2018, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2015-2017, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -388,7 +388,7 @@ int sde_wb_connector_set_info_blob(struct drm_connector *connector,
 			wb_dev->wb_cfg->sblk->maxlinewidth);
 
 	sde_kms_info_start(info, "features");
-	if (wb_dev->wb_cfg && (wb_dev->wb_cfg->features & BIT(SDE_WB_UBWC)))
+	if (wb_dev->wb_cfg && (wb_dev->wb_cfg->features & SDE_WB_UBWC))
 		sde_kms_info_append(info, "wb_ubwc");
 	sde_kms_info_stop(info);
 
@@ -816,7 +816,6 @@ static struct platform_driver sde_wb_driver = {
 	.driver = {
 		.name = "sde_wb",
 		.of_match_table = dt_match,
-		.suppress_bind_attrs = true,
 	},
 };
 

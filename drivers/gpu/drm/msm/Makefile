@@ -5,7 +5,6 @@ ccflags-y += -Idrivers/gpu/drm/msm/sde
 ccflags-y += -Idrivers/media/platform/msm/sde/rotator
 ccflags-$(CONFIG_DISPLAY_SAMSUNG) += -Idrivers/gpu/drm/msm/samsung
 ccflags-y += -Idrivers/gpu/drm/msm/hdmi
-ccflags-y += -Wno-unused-function
 
 msm_drm-y := \
 	dp/dp_usbpd.o \

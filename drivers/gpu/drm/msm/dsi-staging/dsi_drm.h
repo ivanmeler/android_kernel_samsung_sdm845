@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016-2018, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2016-2017, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -86,18 +86,6 @@ int dsi_conn_get_mode_info(const struct drm_display_mode *drm_mode,
 	void *display);
 
 /**
- * dsi_conn_ext_bridge_get_mode_info - retrieve information on the mode selected
- * @drm_mode: Display mode set for the display
- * @mode_info: Out parameter. information of the mode.
- * @max_mixer_width: max width supported by HW layer mixer
- * @display: Pointer to private display structure
- * Returns: Zero on success
- */
-int dsi_conn_ext_bridge_get_mode_info(const struct drm_display_mode *drm_mode,
-	struct msm_mode_info *mode_info, u32 max_mixer_width,
-	void *display);
-
-/**
  * dsi_conn_mode_valid - callback to determine if specified mode is valid
  * @connector: Pointer to drm connector structure
  * @mode: Pointer to drm mode structure
@@ -150,6 +138,4 @@ int dsi_conn_post_kickoff(struct drm_connector *connector);
 void dsi_convert_to_drm_mode(const struct dsi_display_mode *dsi_mode,
 				struct drm_display_mode *drm_mode);
 
-u64 dsi_drm_find_bit_clk_rate(void *display,
-			      const struct drm_display_mode *drm_mode);
 #endif /* _DSI_DRM_H_ */

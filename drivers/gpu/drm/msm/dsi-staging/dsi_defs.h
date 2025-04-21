@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016-2018, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2016-2017, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -79,7 +79,6 @@ enum dsi_op_mode {
  * @DSI_MODE_FLAG_DMS: Seamless transition is dynamic mode switch
  * @DSI_MODE_FLAG_VRR: Seamless transition is DynamicFPS.
  *                     New timing values are sent from DAL.
- * @DSI_MODE_FLAG_DYN_CLK: Seamless transition is dynamic clock change
  */
 enum dsi_mode_flags {
 	DSI_MODE_FLAG_SEAMLESS			= BIT(0),
@@ -87,7 +86,6 @@ enum dsi_mode_flags {
 	DSI_MODE_FLAG_VBLANK_PRE_MODESET	= BIT(2),
 	DSI_MODE_FLAG_DMS			= BIT(3),
 	DSI_MODE_FLAG_VRR			= BIT(4),
-	DSI_MODE_FLAG_DYN_CLK			= BIT(5),
 };
 
 /**
@@ -343,9 +341,6 @@ enum dsi_cmd_set_type {
 	TX_ESD_RECOVERY_2,
 	TX_MCD_ON,
 	TX_MCD_OFF,
-	TX_MCD_READ_RESISTANCE_PRE, /* For read real MCD R/L resistance */
-	TX_MCD_READ_RESISTANCE, /* For read real MCD R/L resistance */
-	TX_MCD_READ_RESISTANCE_POST, /* For read real MCD R/L resistance */
 	TX_GRADUAL_ACL,
 	TX_HW_CURSOR,
 	TX_MULTIRES_FHD_TO_WQHD,
@@ -382,27 +377,19 @@ enum dsi_cmd_set_type {
 	TX_MICRO_SHORT_TEST_ON,
 	TX_MICRO_SHORT_TEST_OFF,
 	TX_POC_CMD_START, /* START POC CMDS */
-	TX_POC_ENABLE,
-	TX_POC_DISABLE,
+	TX_POC_WRITE_1BYTE,
 	TX_POC_ERASE,
 	TX_POC_ERASE1,
-	TX_POC_PRE_ERASE_SECTOR,
-	TX_POC_ERASE_SECTOR,
-	TX_POC_POST_ERASE_SECTOR,
 	TX_POC_PRE_WRITE,
-	TX_POC_WRITE_LOOP_START,
-	TX_POC_WRITE_LOOP_DATA_ADD,
-	TX_POC_WRITE_LOOP_DATA,
-	TX_POC_WRITE_LOOP_END,
+	TX_POC_WRITE_CONTINUE,
+	TX_POC_WRITE_CONTINUE2,
+	TX_POC_WRITE_CONTINUE3,
+	TX_POC_WRITE_END,
 	TX_POC_POST_WRITE,
 	TX_POC_PRE_READ,
 	TX_POC_READ,
 	TX_POC_POST_READ,
 	TX_POC_REG_READ_POS,
-
-	TX_POC_COMP,
-
-
 	TX_POC_CMD_END, /* END POC CMDS */
 	TX_GCT_ENTER,
 	TX_GCT_MID,
@@ -410,21 +397,8 @@ enum dsi_cmd_set_type {
 	TX_DDI_RAM_IMG_DATA,
 	TX_GRAY_SPOT_TEST_ON,
 	TX_GRAY_SPOT_TEST_OFF,
-	TX_ISC_DEFECT_TEST_ON,
-	TX_ISC_DEFECT_TEST_OFF,
 
-	/* SELF IDLE DISPLAY */
-	TX_SELF_IDLE_AOD_ENTER,
-	TX_SELF_IDLE_AOD_EXIT,
-	TX_SELF_IDLE_TIMER_ON,
-	TX_SELF_IDLE_TIMER_OFF,
-	TX_SELF_IDLE_MOVE_ON_PATTERN1,
-	TX_SELF_IDLE_MOVE_ON_PATTERN2,
-	TX_SELF_IDLE_MOVE_ON_PATTERN3,
-	TX_SELF_IDLE_MOVE_ON_PATTERN4,
-	TX_SELF_IDLE_MOVE_OFF,
-
-	/* SELF AOD DISPLAY */
+	/* SELF DISPLAY */
 	TX_SELF_DISP_CMD_START,
 	TX_SELF_DISP_ON,
 	TX_SELF_DISP_OFF,
@@ -438,7 +412,6 @@ enum dsi_cmd_set_type {
 	TX_SELF_MOVE_2C_SYNC_OFF,
 	TX_SELF_MASK_SIDE_MEM_SET,
 	TX_SELF_MASK_ON,
-	TX_SELF_MASK_ON_FACTORY,
 	TX_SELF_MASK_OFF,
 	TX_SELF_MASK_IMAGE,
 	TX_SELF_ICON_SIDE_MEM_SET,
@@ -473,12 +446,6 @@ enum dsi_cmd_set_type {
 	TX_SELF_VIDEO_OFF,
 	RX_SELF_DISP_DEBUG,
 	TX_SELF_DISP_CMD_END,
-
-	/* FLASH GAMMA */
-	TX_FLASH_GAMMA_PRE,
-	TX_FLASH_GAMMA,
-	TX_FLASH_GAMMA_POST,
-
 	TX_CMD_END,
 
 	/* RX */
@@ -505,18 +472,12 @@ enum dsi_cmd_set_type {
 	RX_LDI_DEBUG3, /* 0x0E : RDDSM */
 	RX_LDI_DEBUG4, /* 0x05 : DSI_ERR */
 	RX_LDI_DEBUG5, /* 0x0F : OTP loading error count */
-	RX_LDI_DEBUG_LOGBUF, /* 0x9C : command log buffer */
-	RX_LDI_DEBUG_PPS1, /* 0xA2 : PPS data (0x00 ~ 0x2C) */
-	RX_LDI_DEBUG_PPS2, /* 0xA2 : PPS data (0x2d ~ 0x58)*/
 	RX_LDI_LOADING_DET,
 	RX_LDI_FPS,
 	RX_POC_READ,
 	RX_POC_STATUS,
 	RX_POC_CHECKSUM,
-	RX_POC_MCA_CHECK,
 	RX_GCT_CHECKSUM,
-	RX_MCD_READ_RESISTANCE,  /* For read real MCD R/L resistance */
-	RX_FLASH_GAMMA,
 	RX_CMD_END,
 
 	SS_DSI_CMD_SET_MAX,
@@ -674,7 +635,6 @@ struct dsi_mode_info {
  * @ignore_rx_eot:       Ignore Rx EOT packets if set to true.
  * @append_tx_eot:       Append EOT packets for forward transmissions if set to
  *                       true.
- * @force_hs_clk_lane:   Send continuous clock to the panel.
  */
 struct dsi_host_common_cfg {
 	enum dsi_pixel_format dst_format;
@@ -693,7 +653,6 @@ struct dsi_host_common_cfg {
 	u32 t_clk_pre;
 	bool ignore_rx_eot;
 	bool append_tx_eot;
-	bool force_hs_clk_lane;
 };
 
 /**
@@ -710,8 +669,6 @@ struct dsi_host_common_cfg {
  * @bllp_lp11_en:              Enter low power stop mode (LP-11) during BLLP.
  * @traffic_mode:              Traffic mode for video stream.
  * @vc_id:                     Virtual channel identifier.
- * @dma_sched_line:         Line number, after vactive end, at which command dma
- *			       needs to be triggered.
  */
 struct dsi_video_engine_cfg {
 	bool last_line_interleave_en;
@@ -723,7 +680,6 @@ struct dsi_video_engine_cfg {
 	bool bllp_lp11_en;
 	enum dsi_video_traffic_mode traffic_mode;
 	u32 vc_id;
-	u32 dma_sched_line;
 };
 
 /**
@@ -865,50 +821,11 @@ struct dsi_event_cb_info {
  * @DSI_FIFO_OVERFLOW:     DSI FIFO Overflow error
  * @DSI_FIFO_UNDERFLOW:    DSI FIFO Underflow error
  * @DSI_LP_Rx_TIMEOUT:     DSI LP/RX Timeout error
- * @DSI_PLL_UNLOCK_ERR:	   DSI PLL unlock error
  */
 enum dsi_error_status {
 	DSI_FIFO_OVERFLOW = 1,
 	DSI_FIFO_UNDERFLOW,
 	DSI_LP_Rx_TIMEOUT,
-	DSI_PLL_UNLOCK_ERR,
-	DSI_ERR_INTR_ALL,
 };
 
-/* structure containing the delays required for dynamic clk */
-struct dsi_dyn_clk_delay {
-	u32 pipe_delay;
-	u32 pipe_delay2;
-	u32 pll_delay;
-};
-
-/* dynamic refresh control bits */
-enum dsi_dyn_clk_control_bits {
-	DYN_REFRESH_INTF_SEL = 1,
-	DYN_REFRESH_SYNC_MODE,
-	DYN_REFRESH_SW_TRIGGER,
-	DYN_REFRESH_SWI_CTRL,
-};
-
-/* convert dsi pixel format into bits per pixel */
-static inline int dsi_pixel_format_to_bpp(enum dsi_pixel_format fmt)
-{
-	switch (fmt) {
-	case DSI_PIXEL_FORMAT_RGB888:
-	case DSI_PIXEL_FORMAT_MAX:
-		return 24;
-	case DSI_PIXEL_FORMAT_RGB666:
-	case DSI_PIXEL_FORMAT_RGB666_LOOSE:
-		return 18;
-	case DSI_PIXEL_FORMAT_RGB565:
-		return 16;
-	case DSI_PIXEL_FORMAT_RGB111:
-		return 3;
-	case DSI_PIXEL_FORMAT_RGB332:
-		return 8;
-	case DSI_PIXEL_FORMAT_RGB444:
-		return 12;
-	}
-	return 24;
-}
 #endif /* _DSI_DEFS_H_ */

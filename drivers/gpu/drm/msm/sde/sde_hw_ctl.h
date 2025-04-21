@@ -1,4 +1,4 @@
-/* Copyright (c) 2015-2019, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2015-2017, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -52,8 +52,6 @@ struct sde_hw_ctl;
 struct sde_hw_stage_cfg {
 	enum sde_sspp stage[SDE_STAGE_MAX][PIPES_PER_STAGE];
 	enum sde_sspp_multirect_index multirect_index
-					[SDE_STAGE_MAX][PIPES_PER_STAGE];
-	enum sde_sspp_layout_index layout_index
 					[SDE_STAGE_MAX][PIPES_PER_STAGE];
 };
 
@@ -154,23 +152,7 @@ struct sde_hw_ctl_ops {
 	void (*setup_intf_cfg)(struct sde_hw_ctl *ctx,
 		struct sde_hw_intf_cfg *cfg);
 
-	/**
-	 * Update the interface selection with input WB config
-	 * @ctx       : ctl path ctx pointer
-	 * @cfg       : pointer to input wb config
-	 * @enable    : set if true, clear otherwise
-	 */
-	void (*update_wb_cfg)(struct sde_hw_ctl *ctx,
-		struct sde_hw_intf_cfg *cfg, bool enable);
-
 	int (*reset)(struct sde_hw_ctl *c);
-
-	/**
-	 * get_reset - check ctl reset status bit
-	 * @ctx    : ctl path ctx pointer
-	 * Returns: current value of ctl reset status
-	 */
-	u32 (*get_reset)(struct sde_hw_ctl *ctx);
 
 	/**
 	 * hard_reset - force reset on ctl_path
@@ -250,7 +232,7 @@ struct sde_hw_ctl_ops {
 	 * @cfg       : blend stage configuration
 	 */
 	void (*setup_blendstage)(struct sde_hw_ctl *ctx,
-		enum sde_lm lm, int flags, struct sde_hw_stage_cfg *cfg);
+		enum sde_lm lm, struct sde_hw_stage_cfg *cfg);
 
 	void (*setup_sbuf_cfg)(struct sde_hw_ctl *ctx,
 		struct sde_ctl_sbuf_cfg *cfg);

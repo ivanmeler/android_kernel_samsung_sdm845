@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012-2018, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2012-2017, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -50,7 +50,6 @@ enum dp_usbpd_port {
  * @alt_mode_cfg_done: bool to specify alt mode status
  * @debug_en: bool to specify debug mode
  * @simulate_connect: simulate disconnect or connect for debug mode
- * @simulate_attention: simulate attention messages for debug mode
  */
 struct dp_usbpd {
 	enum dp_usbpd_port port;
@@ -66,7 +65,6 @@ struct dp_usbpd {
 	bool debug_en;
 
 	int (*simulate_connect)(struct dp_usbpd *dp_usbpd, bool hpd);
-	int (*simulate_attention)(struct dp_usbpd *dp_usbpd, int vdo);
 };
 
 #ifndef CONFIG_SEC_DISPLAYPORT
@@ -118,4 +116,5 @@ struct dp_usbpd *secdp_usbpd_get(struct device *dev, struct dp_usbpd_cb *cb);
 #endif /* CONFIG_SEC_DISPLAYPORT */
 
 void dp_usbpd_put(struct dp_usbpd *pd);
+
 #endif /* _DP_USBPD_H_ */

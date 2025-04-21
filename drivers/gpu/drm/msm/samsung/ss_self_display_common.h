@@ -59,7 +59,6 @@ struct self_display {
 	struct miscdevice dev;
 
 	int is_support;
-	int factory_support;
 	int on;
 	int file_open;
 	int time_set;

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016-2018, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2016-2017, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -218,15 +218,6 @@ int dsi_phy_clk_cb_register(struct msm_dsi_phy *phy,
 int dsi_phy_idle_ctrl(struct msm_dsi_phy *phy, bool enable);
 
 /**
- * dsi_phy_set_clamp_state() - configure clamps for DSI lanes
- * @phy:        DSI PHY handle.
- * @enable:     boolean to specify clamp enable/disable.
- *
- * Return: error code.
- */
-int dsi_phy_set_clamp_state(struct msm_dsi_phy *phy, bool enable);
-
-/**
  * dsi_phy_set_clk_freq() - set DSI PHY clock frequency setting
  * @phy:          DSI PHY handle
  * @clk_freq:     link clock frequency
@@ -259,16 +250,6 @@ int dsi_phy_set_timing_params(struct msm_dsi_phy *phy,
 int dsi_phy_lane_reset(struct msm_dsi_phy *phy);
 
 /**
- * dsi_phy_toggle_resync_fifo() - toggle resync retime FIFO
- * @phy:          DSI PHY handle
- *
- * Toggle the resync retime FIFO to synchronize the data paths.
- * This should be done everytime there is a change in the link clock
- * rate
- */
-void dsi_phy_toggle_resync_fifo(struct msm_dsi_phy *phy);
-
-/**
  * dsi_phy_drv_register() - register platform driver for dsi phy
  */
 void dsi_phy_drv_register(void);
@@ -278,45 +259,4 @@ void dsi_phy_drv_register(void);
  */
 void dsi_phy_drv_unregister(void);
 
-/**
- * dsi_phy_update_phy_timings() - Update dsi phy timings
- * @phy:	DSI PHY handle
- * @config:	DSI Host config parameters
- *
- * Return: error code.
- */
-int dsi_phy_update_phy_timings(struct msm_dsi_phy *phy,
-			       struct dsi_host_config *config);
-
-/**
- * dsi_phy_config_dynamic_refresh() - Configure dynamic refresh registers
- * @phy:	DSI PHY handle
- * @delay:	pipe delays for dynamic refresh
- * @is_master:	Boolean to indicate if for master or slave
- */
-void dsi_phy_config_dynamic_refresh(struct msm_dsi_phy *phy,
-				    struct dsi_dyn_clk_delay *delay,
-				    bool is_master);
-/**
- * dsi_phy_dynamic_refresh_trigger() - trigger dynamic refresh
- * @phy:	DSI PHY handle
- * @is_master:	Boolean to indicate if for master or slave.
- */
-void dsi_phy_dynamic_refresh_trigger(struct msm_dsi_phy *phy, bool is_master);
-
-/**
- * dsi_phy_dynamic_refresh_clear() - clear dynamic refresh config
- * @phy:	DSI PHY handle
- */
-void dsi_phy_dynamic_refresh_clear(struct msm_dsi_phy *phy);
-
-/**
- * dsi_phy_dyn_refresh_cache_phy_timings - cache the phy timings calculated
- *				as part of dynamic refresh.
- * @phy:	   DSI PHY Handle.
- * @dst:	   Pointer to cache location.
- * @size:	   Number of phy lane settings.
- */
-int dsi_phy_dyn_refresh_cache_phy_timings(struct msm_dsi_phy *phy,
-					  u32 *dst, u32 size);
 #endif /* _DSI_PHY_H_ */

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016-2019, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2016-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -57,9 +57,6 @@ static const struct sde_rm_topology_def g_top_table[] = {
 	{   SDE_RM_TOPOLOGY_DUALPIPE_3DMERGE_DSC, 2, 1, 1, 1, false },
 	{   SDE_RM_TOPOLOGY_DUALPIPE_DSCMERGE,    2, 2, 1, 1, false },
 	{   SDE_RM_TOPOLOGY_PPSPLIT,              1, 0, 2, 1, true  },
-	{   SDE_RM_TOPOLOGY_QUADPIPE_3DMERGE,     4, 0, 2, 2, true  },
-	{   SDE_RM_TOPOLOGY_QUADPIPE_DSCMERGE,    4, 4, 2, 2, true  },
-	{   SDE_RM_TOPOLOGY_QUADPIPE_3DMERGE_DSC, 4, 2, 2, 2, true  },
 };
 
 /**
@@ -188,44 +185,6 @@ enum sde_rm_topology_name sde_rm_get_topology_name(
 			return g_top_table[i].top_name;
 
 	return SDE_RM_TOPOLOGY_NONE;
-}
-
-int sde_rm_get_hw_count(struct sde_rm *rm, uint32_t enc_id,
-	enum sde_hw_blk_type type)
-{
-	struct list_head *blk_list;
-	struct sde_rm_hw_blk *blk;
-	int count = 0;
-
-	mutex_lock(&rm->rm_lock);
-	if (!rm || type >= SDE_HW_BLK_MAX) {
-		SDE_ERROR("invalid rm/type %d\n", type);
-		count = -EINVAL;
-		goto exit;
-	}
-
-	blk_list = &rm->hw_blks[type];
-	list_for_each_entry(blk, blk_list, list) {
-		struct sde_rm_rsvp *rsvp = blk->rsvp;
-
-		if (rsvp && rsvp->enc_id == enc_id)
-			count++;
-	}
-
-exit:
-	mutex_unlock(&rm->rm_lock);
-	return count;
-}
-
-int sde_rm_get_topology_num_encoders(enum sde_rm_topology_name topology)
-{
-	int i;
-
-	for (i = 0; i < SDE_RM_TOPOLOGY_MAX; i++)
-		if (g_top_table[i].top_name == topology)
-			return g_top_table[i].num_comp_enc;
-
-	return 0;
 }
 
 static bool _sde_rm_get_hw_locked(struct sde_rm *rm, struct sde_rm_hw_iter *i)
@@ -439,7 +398,7 @@ int sde_rm_init(struct sde_rm *rm,
 		void __iomem *mmio,
 		struct drm_device *dev)
 {
-	int rc = 0, i;
+	int rc, i;
 	enum sde_hw_blk_type type;
 
 	if (!rm || !cat || !mmio || !dev) {
@@ -1223,14 +1182,14 @@ static u32 _sde_rm_poll_intr_status_for_cont_splash(struct sde_hw_intr *intr,
 	}
 
 	SDE_EVT32(status, irq_idx_pp_done, SDE_EVTLOG_ERROR);
-	SDE_DEBUG("polling timed out. status = 0x%x\n", status);
+	SDE_ERROR("polling timed out. status = 0x%x\n", status);
 	return -ETIMEDOUT;
 }
 
 static int _sde_rm_autorefresh_disable(struct sde_hw_pingpong *pp,
 		struct sde_hw_intr *hw_intr)
 {
-	u32 const timeout_ms = 35; /* Max two vsyncs delay */
+	u32 const timeout_ms = 67; /* Max four vsyncs delay */
 	int rc = 0, i, loop = 3;
 	struct sde_hw_pp_vsync_info info;
 	int irq_idx_pp_done = -1, irq_idx_autorefresh = -1;
@@ -1367,7 +1326,7 @@ static int _sde_rm_get_pp_dsc_for_cont_splash(struct sde_rm *rm,
 /**
  * _sde_rm_get_ctl_lm_for_cont_splash - retrieve the current LM blocks
  * @ctl: Pointer to CTL hardware block
- * @max_lm_cnt: max mixer index supported in the hw
+ * @max_lm_cnt: number of LM blocks supported in the hw
  * @lm_cnt: number of LM blocks already active
  * @lm_ids: pointer to store the active LM block IDs
  * @top: pointer to the current "ctl_top" structure
@@ -1447,8 +1406,6 @@ int sde_rm_cont_splash_res_init(struct msm_drm_private *priv,
 	struct sde_rm_hw_iter iter_c;
 	int index = 0, ctl_top_cnt;
 	struct sde_kms *sde_kms = NULL;
-	struct sde_hw_mdp *hw_mdp;
-	int max_mixer_idx = 0;
 
 	if (!priv || !rm || !cat || !splash_data) {
 		SDE_ERROR("invalid input parameters\n");
@@ -1473,16 +1430,6 @@ int sde_rm_cont_splash_res_init(struct msm_drm_private *priv,
 		return -EINVAL;
 	}
 
-	/*
-	 * max_mixer_idx is used to loop through all available mixers
-	 * to check mixers programmed in splash. For some targets
-	 * max_mixer_idx value might be more than mixer count, hence
-	 * use mixer index instead of mixer count to loop through all
-	 * the mixers.
-	 */
-	if (cat->mixer_count > 0)
-		max_mixer_idx =  cat->mixer[cat->mixer_count-1].id;
-
 	sde_rm_init_hw_iter(&iter_c, 0, SDE_HW_BLK_CTL);
 	while (_sde_rm_get_hw_locked(rm, &iter_c)) {
 		struct sde_hw_ctl *ctl = to_sde_hw_ctl(iter_c.blk->hw);
@@ -1493,7 +1440,7 @@ int sde_rm_cont_splash_res_init(struct msm_drm_private *priv,
 			splash_data->lm_cnt +=
 				_sde_rm_get_ctl_lm_for_cont_splash
 					(ctl,
-					max_mixer_idx,
+					cat->mixer_count,
 					splash_data->lm_cnt,
 					splash_data->lm_ids,
 					&splash_data->top[index], index);
@@ -1514,16 +1461,9 @@ int sde_rm_cont_splash_res_init(struct msm_drm_private *priv,
 				sde_kms,
 				cat->dsc_count,
 				splash_data->dsc_ids);
-
-	hw_mdp = sde_rm_get_mdp(rm);
-	if (hw_mdp && hw_mdp->ops.get_split_flush_status) {
-		splash_data->single_flush_en =
-			hw_mdp->ops.get_split_flush_status(hw_mdp);
-	}
-
-	SDE_DEBUG("splash_data: ctl_top_cnt=%d, lm_cnt=%d, dsc_cnt=%d sf=%d\n",
+	SDE_DEBUG("splash_data: ctl_top_cnt=%d, lm_cnt=%d, dsc_cnt=%d\n",
 		splash_data->ctl_top_cnt, splash_data->lm_cnt,
-		splash_data->dsc_cnt, splash_data->single_flush_en);
+		splash_data->dsc_cnt);
 
 	return 0;
 }

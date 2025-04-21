@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012-2018, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2012-2017, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -730,6 +730,24 @@ end:
 	return ret;
 }
 
+static char *dp_link_get_test_name(u32 test_requested)
+{
+	switch (test_requested) {
+	case DP_TEST_LINK_TRAINING:
+		return DP_LINK_ENUM_STR(DP_TEST_LINK_TRAINING);
+	case DP_TEST_LINK_VIDEO_PATTERN:
+		return DP_LINK_ENUM_STR(DP_TEST_LINK_VIDEO_PATTERN);
+	case DP_TEST_LINK_EDID_READ:
+		return DP_LINK_ENUM_STR(DP_TEST_LINK_EDID_READ);
+	case DP_TEST_LINK_PHY_TEST_PATTERN:
+		return DP_LINK_ENUM_STR(DP_TEST_LINK_PHY_TEST_PATTERN);
+	case DP_TEST_LINK_AUDIO_PATTERN:
+		return DP_LINK_ENUM_STR(DP_TEST_LINK_AUDIO_PATTERN);
+	default:
+		return "unknown";
+	}
+}
+
 /**
  * dp_link_is_video_audio_test_requested() - checks for audio/video link request
  * @link: link requested by the sink
@@ -906,10 +924,8 @@ static void dp_link_parse_sink_status_field(struct dp_link_private *link)
 #ifdef CONFIG_SEC_DISPLAYPORT
 	else {
 		int i;
-		pr_cont("[drm-dp] %s: ", __func__);
 		for (i = 0; i < DP_LINK_STATUS_SIZE; i++)
-			pr_cont("0x%x: 0x%02x ", DP_LANE0_1_STATUS + i, link->link_status[i]);
-		pr_cont("\n");
+			pr_debug("0x%x: 0x%02x\n", DP_LANE0_1_STATUS + i, link->link_status[i]);
 	}
 #endif
 	dp_link_parse_request(link);
@@ -1153,11 +1169,19 @@ static int dp_link_process_link_status_update(struct dp_link_private *link)
 			link->dp_link.link_params.lane_count)))
 		return -EINVAL;
 
+#ifndef CONFIG_SEC_DISPLAYPORT
+	pr_debug("channel_eq_done = %d, clock_recovery_done = %d\n",
+			drm_dp_clock_recovery_ok(link->link_status,
+			link->dp_link.link_params.lane_count),
+			drm_dp_clock_recovery_ok(link->link_status,
+			link->dp_link.link_params.lane_count));
+#else
 	pr_debug("channel_eq_done = %d, clock_recovery_done = %d\n",
 			drm_dp_channel_eq_ok(link->link_status,
 			link->dp_link.link_params.lane_count),
 			drm_dp_clock_recovery_ok(link->link_status,
 			link->dp_link.link_params.lane_count));
+#endif
 
 	return 0;
 }
@@ -1311,18 +1335,15 @@ bool secdp_check_link_stable(struct dp_link *dp_link)
 		goto exit;
 	}
 
-	if (!(get_link_status(link->link_status, DP_SINK_STATUS) & DP_RECEIVE_PORT_0_STATUS)) {
-		pr_err("[205h] port0: out of sync\n");
+	if (!get_link_status(link->link_status, DP_SINK_STATUS) & DP_RECEIVE_PORT_0_STATUS) {
 		goto exit;
 	}
-/*
-	if (!(get_link_status(link->link_status, DP_LANE_ALIGN_STATUS_UPDATED) & DP_LINK_STATUS_UPDATED)) {
-		pr_err("[204h] link_status_updated is zero!\n");
-		goto exit;
-	}
-*/
-	if (!(get_link_status(link->link_status, DP_LANE_ALIGN_STATUS_UPDATED) & DP_INTERLANE_ALIGN_DONE)) {
-		pr_err("[204h] interlane_align_done is zero!\n");
+	/*
+	   if (!(get_link_status(link->link_status, DP_LANE_ALIGN_STATUS_UPDATED) & DP_LINK_STATUS_UPDATED)) {
+	   goto exit;
+	   }
+	 */
+	if (!get_link_status(link->link_status, DP_LANE_ALIGN_STATUS_UPDATED) & DP_INTERLANE_ALIGN_DONE) {
 		goto exit;
 	}
 

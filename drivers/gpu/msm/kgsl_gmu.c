@@ -1,4 +1,4 @@
-/* Copyright (c) 2017-2018, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2017, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -59,8 +59,6 @@ struct gmu_vma {
 	unsigned int cached_csize;
 	unsigned int image_start;
 };
-
-#define GMU_CM3_CFG_NONMASKINTR_SHIFT    9
 
 struct gmu_iommu_context {
 	const char *name;
@@ -133,10 +131,6 @@ static int _gmu_iommu_fault_handler(struct device *dev,
 		fault_type = "translation";
 	else if (flags & IOMMU_FAULT_PERMISSION)
 		fault_type = "permission";
-	else if (flags & IOMMU_FAULT_EXTERNAL)
-		fault_type = "external";
-	else if (flags & IOMMU_FAULT_TRANSACTION_STALLED)
-		fault_type = "transaction stalled";
 
 	dev_err(dev, "GMU fault addr = %lX, context=%s (%s %s fault)\n",
 			addr, name,
@@ -315,7 +309,7 @@ static struct {
  * @gmu: Pointer to GMU device
  * @node: Pointer to GMU device node
  */
-static int gmu_iommu_init(struct gmu_device *gmu, struct device_node *node)
+int gmu_iommu_init(struct gmu_device *gmu, struct device_node *node)
 {
 	struct device_node *child;
 	struct gmu_iommu_context *ctx = NULL;
@@ -352,7 +346,7 @@ static int gmu_iommu_init(struct gmu_device *gmu, struct device_node *node)
  * from IOMMU context banks.
  * @gmu: Pointer to GMU device
  */
-static void gmu_kmem_close(struct gmu_device *gmu)
+void gmu_kmem_close(struct gmu_device *gmu)
 {
 	int i;
 	struct gmu_memdesc *md = &gmu->fw_image;
@@ -392,7 +386,7 @@ static void gmu_kmem_close(struct gmu_device *gmu)
 	iommu_domain_free(ctx->domain);
 }
 
-static void gmu_memory_close(struct gmu_device *gmu)
+void gmu_memory_close(struct gmu_device *gmu)
 {
 	gmu_kmem_close(gmu);
 	/* Free user memory context */
@@ -406,7 +400,7 @@ static void gmu_memory_close(struct gmu_device *gmu)
  * @gmu: Pointer to GMU device
  * @node: Pointer to GMU device node
  */
-static int gmu_memory_probe(struct gmu_device *gmu, struct device_node *node)
+int gmu_memory_probe(struct gmu_device *gmu, struct device_node *node)
 {
 	int ret;
 
@@ -452,7 +446,7 @@ int gmu_dcvs_set(struct gmu_device *gmu,
 	struct adreno_device *adreno_dev = ADRENO_DEVICE(device);
 	struct adreno_gpudev *gpudev = ADRENO_GPU_DEVICE(adreno_dev);
 	int perf_idx = INVALID_DCVS_IDX, bw_idx = INVALID_DCVS_IDX;
-	int ret = 0;
+	int ret;
 
 	if (gpu_pwrlevel < gmu->num_gpupwrlevels - 1)
 		perf_idx = gmu->num_gpupwrlevels - gpu_pwrlevel - 1;
@@ -464,22 +458,23 @@ int gmu_dcvs_set(struct gmu_device *gmu,
 		(bw_idx == INVALID_DCVS_IDX))
 		return -EINVAL;
 
-	if (ADRENO_QUIRK(adreno_dev, ADRENO_QUIRK_HFI_USE_REG))
+	if (ADRENO_QUIRK(adreno_dev, ADRENO_QUIRK_HFI_USE_REG)) {
 		ret = gpudev->rpmh_gpu_pwrctrl(adreno_dev,
 			GMU_DCVS_NOHFI, perf_idx, bw_idx);
-	else if (test_bit(GMU_HFI_ON, &gmu->flags))
-		ret = hfi_send_dcvs_vote(gmu, perf_idx, bw_idx, ACK_NONBLOCK);
 
-	if (ret) {
-		dev_err_ratelimited(&gmu->pdev->dev,
-			"Failed to set GPU perf idx %d, bw idx %d\n",
-			perf_idx, bw_idx);
+		if (ret) {
+			dev_err_ratelimited(&gmu->pdev->dev,
+				"Failed to set GPU perf idx %d, bw idx %d\n",
+				perf_idx, bw_idx);
 
-		adreno_set_gpu_fault(adreno_dev, ADRENO_GMU_FAULT);
-		adreno_dispatcher_schedule(device);
+			adreno_set_gpu_fault(adreno_dev, ADRENO_GMU_FAULT);
+			adreno_dispatcher_schedule(device);
+		}
+
+		return ret;
 	}
 
-	return ret;
+	return hfi_send_dcvs_vote(gmu, perf_idx, bw_idx, ACK_NONBLOCK);
 }
 
 struct rpmh_arc_vals {
@@ -758,7 +753,7 @@ static int gmu_bus_vote_init(struct gmu_device *gmu, struct kgsl_pwrctrl *pwr)
 	return 0;
 }
 
-static int gmu_rpmh_init(struct gmu_device *gmu, struct kgsl_pwrctrl *pwr)
+int gmu_rpmh_init(struct gmu_device *gmu, struct kgsl_pwrctrl *pwr)
 {
 	struct rpmh_arc_vals gfx_arc, cx_arc, mx_arc;
 	int ret;
@@ -788,30 +783,12 @@ static int gmu_rpmh_init(struct gmu_device *gmu, struct kgsl_pwrctrl *pwr)
 	return rpmh_arc_votes_init(gmu, &cx_arc, &mx_arc, GMU_ARC_VOTE);
 }
 
-static void send_nmi_to_gmu(struct adreno_device *adreno_dev)
-{
-	/* Mask so there's no interrupt caused by NMI */
-	adreno_write_gmureg(adreno_dev,
-			ADRENO_REG_GMU_GMU2HOST_INTR_MASK, 0xFFFFFFFF);
-
-	/* Make sure the interrupt is masked before causing it */
-	wmb();
-	adreno_write_gmureg(adreno_dev,
-		ADRENO_REG_GMU_NMI_CONTROL_STATUS, 0);
-	adreno_write_gmureg(adreno_dev,
-		ADRENO_REG_GMU_CM3_CFG,
-		(1 << GMU_CM3_CFG_NONMASKINTR_SHIFT));
-
-	/* Make sure the NMI is invoked before we proceed*/
-	wmb();
-}
-
 static irqreturn_t gmu_irq_handler(int irq, void *data)
 {
 	struct gmu_device *gmu = data;
 	struct kgsl_device *device = container_of(gmu, struct kgsl_device, gmu);
 	struct adreno_device *adreno_dev = ADRENO_DEVICE(device);
-	unsigned int mask, status = 0;
+	unsigned int status = 0;
 
 	adreno_read_gmureg(ADRENO_DEVICE(device),
 			ADRENO_REG_GMU_AO_HOST_INTERRUPT_STATUS, &status);
@@ -820,20 +797,6 @@ static irqreturn_t gmu_irq_handler(int irq, void *data)
 
 	/* Ignore GMU_INT_RSCC_COMP and GMU_INT_DBD WAKEUP interrupts */
 	if (status & GMU_INT_WDOG_BITE) {
-		/* Temporarily mask the watchdog interrupt to prevent a storm */
-		adreno_read_gmureg(adreno_dev,
-				ADRENO_REG_GMU_AO_HOST_INTERRUPT_MASK, &mask);
-		adreno_write_gmureg(adreno_dev,
-				ADRENO_REG_GMU_AO_HOST_INTERRUPT_MASK,
-				(mask | GMU_INT_WDOG_BITE));
-
-		send_nmi_to_gmu(adreno_dev);
-		/*
-		 * There is sufficient delay for the GMU to have finished
-		 * handling the NMI before snapshot is taken, as the fault
-		 * worker is scheduled below.
-		 */
-
 		dev_err_ratelimited(&gmu->pdev->dev,
 				"GMU watchdog expired interrupt received\n");
 		adreno_set_gpu_fault(adreno_dev, ADRENO_GMU_FAULT);
@@ -1349,14 +1312,11 @@ static int gmu_disable_gdsc(struct gmu_device *gmu)
 		/*cond_resched();*/
 	} while (!(time_after(jiffies, t)));
 
-	if (!regulator_is_enabled(gmu->cx_gdsc))
-		return 0;
-
 	dev_err(&gmu->pdev->dev, "GMU CX gdsc off timeout");
 	return -ETIMEDOUT;
 }
 
-int gmu_suspend(struct kgsl_device *device)
+static int gmu_suspend(struct kgsl_device *device)
 {
 	struct adreno_device *adreno_dev = ADRENO_DEVICE(device);
 	struct adreno_gpudev *gpudev = ADRENO_GPU_DEVICE(adreno_dev);
@@ -1384,16 +1344,27 @@ void gmu_snapshot(struct kgsl_device *device)
 	struct adreno_device *adreno_dev = ADRENO_DEVICE(device);
 	struct gmu_device *gmu = &device->gmu;
 
-	send_nmi_to_gmu(adreno_dev);
+	/* Mask so there's no interrupt caused by NMI */
+	adreno_write_gmureg(adreno_dev,
+	ADRENO_REG_GMU_GMU2HOST_INTR_MASK, 0xFFFFFFFF);
+
+	/* Make sure the interrupt is masked before causing it */
+	wmb();
+	adreno_write_gmureg(adreno_dev,
+	ADRENO_REG_GMU_NMI_CONTROL_STATUS, 0);
+	adreno_write_gmureg(adreno_dev,
+	ADRENO_REG_GMU_CM3_CFG, (1 << 9));
+
 	/* Wait for the NMI to be handled */
+	wmb();
 	udelay(100);
 	kgsl_device_snapshot(device, NULL, true);
 
 	adreno_write_gmureg(adreno_dev,
-			ADRENO_REG_GMU_GMU2HOST_INTR_CLR, 0xFFFFFFFF);
+	ADRENO_REG_GMU_GMU2HOST_INTR_CLR, 0xFFFFFFFF);
 	adreno_write_gmureg(adreno_dev,
-			ADRENO_REG_GMU_GMU2HOST_INTR_MASK,
-			(unsigned int) ~HFI_IRQ_MASK);
+	ADRENO_REG_GMU_GMU2HOST_INTR_MASK,
+	(unsigned int) ~HFI_IRQ_MASK);
 
 	gmu->fault_count++;
 }
@@ -1431,7 +1402,6 @@ int gmu_start(struct kgsl_device *device)
 	struct adreno_gpudev *gpudev = ADRENO_GPU_DEVICE(adreno_dev);
 	struct kgsl_pwrctrl *pwr = &device->pwrctrl;
 	struct gmu_device *gmu = &device->gmu;
-	unsigned int boot_state = GMU_WARM_BOOT;
 
 	switch (device->state) {
 	case KGSL_STATE_INIT:
@@ -1468,21 +1438,12 @@ int gmu_start(struct kgsl_device *device)
 		gmu_enable_clks(gmu);
 		gmu_irq_enable(device);
 
-		/*
-		 * If unrecovered is set that means last
-		 * wakeup from SLUMBER state failed. Use GMU
-		 * and HFI boot state as COLD as this is a
-		 * boot after RESET.
-		 */
-		if (gmu->unrecovered)
-			boot_state = GMU_COLD_BOOT;
-
 		ret = gpudev->rpmh_gpu_pwrctrl(adreno_dev, GMU_FW_START,
-				boot_state, 0);
+				GMU_WARM_BOOT, 0);
 		if (ret)
 			goto error_gmu;
 
-		ret = hfi_start(gmu, boot_state);
+		ret = hfi_start(gmu, GMU_WARM_BOOT);
 		if (ret)
 			goto error_gmu;
 
@@ -1498,7 +1459,7 @@ int gmu_start(struct kgsl_device *device)
 			gmu_irq_enable(device);
 
 			ret = gpudev->rpmh_gpu_pwrctrl(
-				adreno_dev, GMU_FW_START, GMU_COLD_BOOT, 0);
+				adreno_dev, GMU_FW_START, GMU_RESET, 0);
 			if (ret)
 				goto error_gmu;
 
@@ -1515,7 +1476,7 @@ int gmu_start(struct kgsl_device *device)
 			hfi_stop(gmu);
 
 			ret = gpudev->rpmh_gpu_pwrctrl(adreno_dev, GMU_FW_START,
-					GMU_COLD_BOOT, 0);
+					GMU_RESET, 0);
 			if (ret)
 				goto error_gmu;
 
@@ -1528,8 +1489,6 @@ int gmu_start(struct kgsl_device *device)
 		break;
 	}
 
-	/* Clear unrecovered as GMU start is successful */
-	gmu->unrecovered = false;
 	return ret;
 
 error_gmu:
@@ -1672,20 +1631,18 @@ void gmu_remove(struct kgsl_device *device)
  * the write to the fenced register went through. If it didn't then we retry
  * the write until it goes through or we time out.
  */
-int adreno_gmu_fenced_write(struct adreno_device *adreno_dev,
+void adreno_gmu_fenced_write(struct adreno_device *adreno_dev,
 		enum adreno_regs offset, unsigned int val,
 		unsigned int fence_mask)
 {
 	unsigned int status, i;
-	struct adreno_gpudev *gpudev = ADRENO_GPU_DEVICE(adreno_dev);
-	unsigned int reg_offset = gpudev->reg_offsets->offsets[offset];
 
 	adreno_writereg(adreno_dev, offset, val);
 
 	if (!kgsl_gmu_isenabled(KGSL_DEVICE(adreno_dev)))
-		return 0;
+		return;
 
-	for (i = 0; i < GMU_LONG_WAKEUP_RETRY_LIMIT; i++) {
+	for (i = 0; i < GMU_WAKEUP_RETRY_MAX; i++) {
 		adreno_read_gmureg(adreno_dev, ADRENO_REG_GMU_AHB_FENCE_STATUS,
 			&status);
 
@@ -1694,25 +1651,16 @@ int adreno_gmu_fenced_write(struct adreno_device *adreno_dev,
 		 * was successful
 		 */
 		if (!(status & fence_mask))
-			return 0;
+			return;
 		/* Wait a small amount of time before trying again */
 		udelay(GMU_WAKEUP_DELAY_US);
 
 		/* Try to write the fenced register again */
 		adreno_writereg(adreno_dev, offset, val);
-
-		if (i == GMU_SHORT_WAKEUP_RETRY_LIMIT)
-			dev_err(adreno_dev->dev.dev,
-				"Waited %d usecs to write fenced register 0x%x. Continuing to wait...\n",
-				(GMU_SHORT_WAKEUP_RETRY_LIMIT *
-				GMU_WAKEUP_DELAY_US),
-				reg_offset);
 	}
 
 	dev_err(adreno_dev->dev.dev,
-		"Timed out waiting %d usecs to write fenced register 0x%x\n",
-		GMU_LONG_WAKEUP_RETRY_LIMIT * GMU_WAKEUP_DELAY_US,
-		reg_offset);
-
-	return -ETIMEDOUT;
+		"GMU fenced register write timed out: reg %x\n", offset);
+	gmu_snapshot(KGSL_DEVICE(adreno_dev));
+	BUG_ON(1);
 }

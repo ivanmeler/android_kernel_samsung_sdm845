@@ -292,9 +292,6 @@ int self_time_set(int from_self_move)
 
 		/* SC_D_EN_MM & SC_D_EN_HH */
 		if (vdd->self_disp.sd_info.en_hh) {
-			/* Clear EN_HH First */
-			cmd_pload[3] &= ~(BIT(2));
-			cmd_pload[3] &= ~(BIT(3));
 			cmd_pload[3] |= (vdd->self_disp.sd_info.en_hh & 0x3) << 2;
 		} else {
 			cmd_pload[3] &= ~(BIT(2));
@@ -302,9 +299,6 @@ int self_time_set(int from_self_move)
 		}
 
 		if (vdd->self_disp.sd_info.en_mm) {
-			/* Clear EN_MM First */
-			cmd_pload[3] &= ~(BIT(0));
-			cmd_pload[3] &= ~(BIT(1));
 			cmd_pload[3] |= (vdd->self_disp.sd_info.en_mm & 0x3);
 		} else {
 			cmd_pload[3] &= ~(BIT(0));
@@ -766,9 +760,6 @@ int self_dclock_set(void)
 	}
 
 	if (sd_info.en_hh) {
-		/* Clear EN_HH First */
-		cmd_pload[3] &= ~(BIT(2));
-		cmd_pload[3] &= ~(BIT(3));
 		cmd_pload[3] |= (sd_info.en_hh & 0x3) << 2;
 	} else {
 		cmd_pload[3] &= ~(BIT(2));
@@ -776,9 +767,6 @@ int self_dclock_set(void)
 	}
 
 	if (sd_info.en_mm) {
-		/* Clear EN_MM First */
-		cmd_pload[3] &= ~(BIT(0));
-		cmd_pload[3] &= ~(BIT(1));
 		cmd_pload[3] |= (sd_info.en_mm & 0x3);
 	} else {
 		cmd_pload[3] &= ~(BIT(0));
@@ -882,12 +870,9 @@ void self_mask_on(int enable)
 
 	mutex_lock(&vdd->self_disp.vdd_self_mask_lock);
 
-	if (enable) {
-		if (vdd->is_factory_mode && vdd->self_disp.factory_support)
-			ss_send_cmd(vdd, TX_SELF_MASK_ON_FACTORY);
-		else
-			ss_send_cmd(vdd, TX_SELF_MASK_ON);
-	} else
+	if (enable)
+		ss_send_cmd(vdd, TX_SELF_MASK_ON);
+	else
 		ss_send_cmd(vdd, TX_SELF_MASK_OFF);
 
 	mutex_unlock(&vdd->self_disp.vdd_self_mask_lock);
@@ -945,6 +930,7 @@ int self_display_debug(void)
 static long self_display_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 {
 	struct samsung_display_driver_data *vdd = samsung_get_vdd();
+	struct dsi_display *display = NULL;
 	void __user *argp = (void __user *)arg;
 	int ret = 0;
 
@@ -953,8 +939,9 @@ static long self_display_ioctl(struct file *file, unsigned int cmd, unsigned lon
 		return -ENODEV;
 	}
 
-	if (!ss_is_ready_to_send_cmd(vdd)) {
-		LCD_ERR("Panel is not ready. Panel State(%d)\n", vdd->panel_state);
+	display = GET_DSI_DISPLAY(vdd);
+	if (IS_ERR_OR_NULL(display)) {
+		LCD_ERR("no display");
 		return -ENODEV;
 	}
 
@@ -977,6 +964,8 @@ static long self_display_ioctl(struct file *file, unsigned int cmd, unsigned lon
 				cmd == IOCTL_SET_ANALOG_CLK ? "IOCTL_SET_ANALOG_CLK" :
 				cmd == IOCTL_SET_DIGITAL_CLK ? "IOCTL_SET_DIGITAL_CLK" :
 				cmd == IOCTL_SET_TIME ? "IOCTL_SET_TIME" : "IOCTL_ERR");
+
+	mutex_lock(&display->display_lock);
 
 	switch (cmd) {
 	case IOCTL_SELF_MOVE_EN:
@@ -1040,6 +1029,7 @@ static long self_display_ioctl(struct file *file, unsigned int cmd, unsigned lon
 		break;
 	}
 error:
+	mutex_unlock(&display->display_lock);
 
 	return ret;
 }
@@ -1063,11 +1053,6 @@ static ssize_t self_display_write(struct file *file, const char __user *buf,
 
 	if (unlikely(!buf)) {
 		LCD_ERR("invalid read buffer\n");
-		return -EINVAL;
-	}
-
-	if (count <= IMAGE_HEADER_SIZE) {
-		LCD_ERR("Invalid Buffer Size (%d)\n", (int)count);
 		return -EINVAL;
 	}
 

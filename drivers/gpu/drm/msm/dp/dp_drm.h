@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2018, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2017, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -32,13 +32,15 @@ struct dp_bridge {
 };
 
 /**
- * dp_connector_config_hdr - callback to configure HDR
+ * dp_connector_pre_kickoff - callback to perform pre kickoff initialization
+ * @connector: Pointer to drm connector structure
  * @display: Pointer to private display handle
- * @c_state: connect state data
+ * @params: Pointer to kickoff parameters
  * Returns: Zero on success
  */
-int dp_connector_config_hdr(void *display,
-		struct sde_connector_state *c_state);
+int dp_connector_pre_kickoff(struct drm_connector *connector,
+		void *display,
+		struct msm_display_kickoff_params *params);
 
 /**
  * dp_connector_post_init - callback to perform additional initialization steps
@@ -93,11 +95,7 @@ int dp_connector_get_mode_info(const struct drm_display_mode *drm_mode,
 
 int dp_connector_get_info(struct msm_display_info *info, void *display);
 
-/**
- * dp_connector_post_open - handle the post open functionalites
- * @display: Pointer to private display structure
- */
-void dp_connector_post_open(void *display);
+void dp_connector_send_hpd_event(void *display);
 
 int dp_drm_bridge_init(void *display,
 	struct drm_encoder *encoder);

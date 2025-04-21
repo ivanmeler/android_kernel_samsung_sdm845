@@ -1,4 +1,4 @@
-/* Copyright (c) 2013-2019, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2013-2017, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -208,8 +208,8 @@ static inline bool _isidle(struct adreno_device *adreno_dev)
 	if (!kgsl_state_is_awake(KGSL_DEVICE(adreno_dev)))
 		goto ret;
 
-	if (!adreno_rb_empty(adreno_dev->cur_rb))
-		return false;
+	if (adreno_rb_empty(adreno_dev->cur_rb))
+		goto ret;
 
 	/* only check rbbm status to determine if GPU is idle */
 	adreno_readreg(adreno_dev, ADRENO_REG_RBBM_STATUS, &reg_rbbm_status);
@@ -564,8 +564,6 @@ static int sendcmd(struct adreno_device *adreno_dev,
 		mutex_unlock(&device->mutex);
 		return -EBUSY;
 	}
-
-	memset(&time, 0x0, sizeof(time));
 
 	dispatcher->inflight++;
 	dispatch_q->inflight++;
@@ -1411,22 +1409,6 @@ int adreno_dispatcher_queue_cmds(struct kgsl_device_private *dev_priv,
 
 	user_ts = *timestamp;
 
-	/*
-	 * If there is only one drawobj in the array and it is of
-	 * type SYNCOBJ_TYPE, skip comparing user_ts as it can be 0
-	 */
-	if (!(count == 1 && drawobj[0]->type == SYNCOBJ_TYPE) &&
-		(drawctxt->base.flags & KGSL_CONTEXT_USER_GENERATED_TS)) {
-		/*
-		 * User specified timestamps need to be greater than the last
-		 * issued timestamp in the context
-		 */
-		if (timestamp_cmp(drawctxt->timestamp, user_ts) >= 0) {
-			spin_unlock(&drawctxt->lock);
-			return -ERANGE;
-		}
-	}
-
 	for (i = 0; i < count; i++) {
 
 		switch (drawobj[i]->type) {
@@ -1732,9 +1714,8 @@ static void adreno_fault_header(struct kgsl_device *device,
 			ib2base, ib2sz, drawctxt->rb->id);
 
 		pr_fault(device, drawobj,
-			"gpu fault ctx %d ctx_type %s ts %d status %8.8X rb %4.4x/%4.4x ib1 %16.16llX/%4.4x ib2 %16.16llX/%4.4x\n",
-			drawobj->context->id, get_api_type_str(drawctxt->type),
-			drawobj->timestamp, status,
+			"gpu fault ctx %d ts %d status %8.8X rb %4.4x/%4.4x ib1 %16.16llX/%4.4x ib2 %16.16llX/%4.4x\n",
+			drawobj->context->id, drawobj->timestamp, status,
 			rptr, wptr, ib1base, ib1sz, ib2base, ib2sz);
 
 		if (rb != NULL)
@@ -2110,22 +2091,6 @@ static int dispatcher_do_fault(struct adreno_device *adreno_dev)
 	if (fault == 0)
 		return 0;
 
-	mutex_lock(&device->mutex);
-
-	/*
-	 * In the very unlikely case that the power is off, do nothing - the
-	 * state will be reset on power up and everybody will be happy
-	 */
-	if (!kgsl_state_is_awake(device)) {
-		mutex_unlock(&device->mutex);
-		if (fault & ADRENO_SOFT_FAULT) {
-			/* Clear the existing register values */
-			memset(adreno_ft_regs_val, 0,
-				adreno_ft_regs_num * sizeof(unsigned int));
-		}
-		return 0;
-	}
-
 	/* Mask all GMU interrupts */
 	if (kgsl_gmu_isenabled(device)) {
 		adreno_write_gmureg(adreno_dev,
@@ -2139,6 +2104,17 @@ static int dispatcher_do_fault(struct adreno_device *adreno_dev)
 	if (gpudev->gx_is_on)
 		gx_on = gpudev->gx_is_on(adreno_dev);
 
+	/*
+	 * In the very unlikely case that the power is off, do nothing - the
+	 * state will be reset on power up and everybody will be happy
+	 */
+
+	if (!kgsl_state_is_awake(device) && (fault & ADRENO_SOFT_FAULT)) {
+		/* Clear the existing register values */
+		memset(adreno_ft_regs_val, 0,
+				adreno_ft_regs_num * sizeof(unsigned int));
+		return 0;
+	}
 
 	/*
 	 * On A5xx and A6xx, read RBBM_STATUS3:SMMU_STALLED_ON_FAULT (BIT 24)
@@ -2151,11 +2127,11 @@ static int dispatcher_do_fault(struct adreno_device *adreno_dev)
 		gx_on) {
 		unsigned int val;
 
+		mutex_lock(&device->mutex);
 		adreno_readreg(adreno_dev, ADRENO_REG_RBBM_STATUS3, &val);
-		if (val & BIT(24)) {
-			mutex_unlock(&device->mutex);
+		mutex_unlock(&device->mutex);
+		if (val & BIT(24))
 			return 0;
-		}
 	}
 
 	/* Turn off all the timers */
@@ -2165,8 +2141,10 @@ static int dispatcher_do_fault(struct adreno_device *adreno_dev)
 	 * Deleting uninitialized timer will block for ever on kernel debug
 	 * disable build. Hence skip del timer if it is not initialized.
 	 */
-	if (adreno_is_preemption_enabled(adreno_dev))
+	if (adreno_is_preemption_execution_enabled(adreno_dev))
 		del_timer_sync(&adreno_dev->preempt.timer);
+
+	mutex_lock(&device->mutex);
 
 	if (gx_on)
 		adreno_readreg64(adreno_dev, ADRENO_REG_CP_RB_BASE,
@@ -2274,14 +2252,6 @@ static int dispatcher_do_fault(struct adreno_device *adreno_dev)
 	}
 
 	atomic_add(halt, &adreno_dev->halt);
-
-	/*
-	 * At this point it is safe to assume that we recovered. Setting
-	 * this field allows us to take a new snapshot for the next failure
-	 * if we are prioritizing the first unrecoverable snapshot.
-	 */
-	if (device->snapshot)
-		device->snapshot->recovered = true;
 
 	return 1;
 }
@@ -2877,16 +2847,6 @@ int adreno_dispatcher_init(struct adreno_device *adreno_dev)
 	return ret;
 }
 
-void adreno_dispatcher_halt(struct kgsl_device *device)
-{
-	adreno_get_gpu_halt(ADRENO_DEVICE(device));
-}
-
-void adreno_dispatcher_unhalt(struct kgsl_device *device)
-{
-	adreno_put_gpu_halt(ADRENO_DEVICE(device));
-}
-
 /*
  * adreno_dispatcher_idle() - Wait for dispatcher to idle
  * @adreno_dev: Adreno device whose dispatcher needs to idle
@@ -2916,13 +2876,6 @@ int adreno_dispatcher_idle(struct adreno_device *adreno_dev)
 	adreno_get_gpu_halt(adreno_dev);
 
 	mutex_unlock(&device->mutex);
-
-	/*
-	 * Flush the worker to make sure all executing
-	 * or pending dispatcher works on worker are
-	 * finished
-	 */
-	kthread_flush_worker(&kgsl_driver.worker);
 
 	ret = wait_for_completion_timeout(&dispatcher->idle_gate,
 			msecs_to_jiffies(ADRENO_IDLE_TIMEOUT));
