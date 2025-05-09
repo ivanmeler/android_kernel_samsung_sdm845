@@ -745,7 +745,12 @@ static ssize_t ss_disp_acl_store(struct device *dev,
 		return size;
 	}
 
-	vdd = ss_check_hall_ic_get_vdd(vdd);
+    vdd = ss_check_hall_ic_get_vdd(vdd);
+
+	if (!ss_is_ready_to_send_cmd(vdd)) {
+		LCD_ERR("Panel is not ready. Panel State(%d)\n", vdd->panel_state);
+		return size;
+	}
 
 	if (sysfs_streq(buf, "1"))
 		acl_set = true;
@@ -759,11 +764,7 @@ static ssize_t ss_disp_acl_store(struct device *dev,
 	if ((acl_set && !vdd->acl_status) ||
 			(!acl_set && vdd->acl_status)) {
 		vdd->acl_status = acl_set;
-		if (!ss_is_ready_to_send_cmd(vdd)) {
-			LCD_ERR("Panel is not ready. Panel State(%d)\n", vdd->panel_state);
-			return size;
-		}
-		ss_brightness_dcs(vdd, USE_CURRENT_BL_LEVEL, BACKLIGHT_NORMAL);
+		ss_brightness_dcs(vdd, vdd->bl_level);
 	} else {
 		vdd->acl_status = acl_set;
 		LCD_INFO("skip acl update!! acl %d", vdd->acl_status);
@@ -805,7 +806,12 @@ static ssize_t ss_disp_siop_store(struct device *dev,
 		return size;
 	}
 
-	vdd = ss_check_hall_ic_get_vdd(vdd);
+    vdd = ss_check_hall_ic_get_vdd(vdd);
+
+	if (!ss_is_ready_to_send_cmd(vdd)) {
+		LCD_ERR("Panel is not ready. Panel State(%d)\n", vdd->panel_state);
+		return size;
+	}
 
 	if (sysfs_streq(buf, "1"))
 		siop_set = true;
@@ -816,19 +822,15 @@ static ssize_t ss_disp_siop_store(struct device *dev,
 
 	LCD_INFO("(%d)\n", siop_set);
 
-	vdd->siop_status = siop_set;
-
-	if (!ss_is_ready_to_send_cmd(vdd)) {
-		LCD_ERR("Panel is not ready. Panel State(%d)\n", vdd->panel_state);
-		return size;
-	}
-
 	if (siop_set && !vdd->siop_status) {
-		ss_brightness_dcs(vdd, USE_CURRENT_BL_LEVEL, BACKLIGHT_NORMAL);
+		vdd->siop_status = siop_set;
+		ss_brightness_dcs(vdd, vdd->bl_level);
 	} else if (!siop_set && vdd->siop_status) {
-		ss_brightness_dcs(vdd, USE_CURRENT_BL_LEVEL, BACKLIGHT_NORMAL);
+		vdd->siop_status = siop_set;
+		ss_brightness_dcs(vdd, vdd->bl_level);
 	} else {
-		LCD_INFO("skip siop ss_brightness_dcs!! acl %d", vdd->acl_status);
+		vdd->siop_status = siop_set;
+		LCD_INFO("skip siop update!! acl %d", vdd->acl_status);
 	}
 
 	return size;
@@ -1091,7 +1093,7 @@ static ssize_t ss_temperature_store(struct device *dev,
 		return size;
 	}
 
-	vdd = ss_check_hall_ic_get_vdd(vdd);
+    vdd = ss_check_hall_ic_get_vdd(vdd);
 
 	if (!ss_is_ready_to_send_cmd(vdd)) {
 		LCD_ERR("Panel is not ready. Panel State(%d)\n", vdd->panel_state);
@@ -1106,12 +1108,7 @@ static ssize_t ss_temperature_store(struct device *dev,
 	if (pre_temp != vdd->temperature && vdd->display_status_dsi.hbm_mode == 1)
 		vdd->display_status_dsi.hbm_mode = 0;
 
-	if (!ss_is_ready_to_send_cmd(vdd)) {
-		LCD_ERR("Panel is not ready. Panel State(%d)\n", vdd->panel_state);
-		return size;
-	}
-
-	ss_brightness_dcs(vdd, USE_CURRENT_BL_LEVEL, BACKLIGHT_NORMAL);
+	ss_brightness_dcs(vdd, vdd->bl_level);
 
 	LCD_INFO("temperature : %d", vdd->temperature);
 
@@ -1151,16 +1148,16 @@ static ssize_t ss_lux_store(struct device *dev,
 		return size;
 	}
 
-	vdd = ss_check_hall_ic_get_vdd(vdd);
-
-	pre_lux = vdd->lux;
-
-	sscanf(buf, "%d", &vdd->lux);
+    vdd = ss_check_hall_ic_get_vdd(vdd);
 
 	if (!ss_is_ready_to_send_cmd(vdd)) {
 		LCD_ERR("Panel is not ready. Panel State(%d)\n", vdd->panel_state);
 		return size;
 	}
+
+	pre_lux = vdd->lux;
+
+	sscanf(buf, "%d", &vdd->lux);
 
 	if (vdd->support_mdnie_lite && pre_lux != vdd->lux)
 		update_dsi_tcon_mdnie_register(vdd);
@@ -2387,7 +2384,7 @@ static ssize_t mipi_samsung_poc_store(struct device *dev,
 {
 	struct samsung_display_driver_data *vdd =
 		(struct samsung_display_driver_data *)dev_get_drvdata(dev);
-	unsigned int value;
+	int input;
 	int ret = 0;
 
 	if (IS_ERR_OR_NULL(vdd)) {
@@ -2400,25 +2397,25 @@ static ssize_t mipi_samsung_poc_store(struct device *dev,
 		return size;
 	}
 
-	sscanf(buf, "%d ", &value);
-	LCD_INFO("INPUT : (%d)\n", value);
+	sscanf(buf, "%d", &input);
+	LCD_INFO("INPUT : (%d)\n", input);
 
-	if (value == 1) {
+	if (input == 1) {
 		LCD_INFO("ERASE \n");
 		if (vdd->panel_func.samsung_poc_ctrl) {
-			ret = vdd->panel_func.samsung_poc_ctrl(vdd, POC_OP_ERASE, buf);
+			ret = vdd->panel_func.samsung_poc_ctrl(vdd, POC_OP_ERASE);
 		}
-	} else if (value == 2) {
+	} else if (input == 2) {
 		LCD_INFO("WRITE \n");
-	} else if (value == 3) {
+	} else if (input == 3) {
 		LCD_INFO("READ \n");
-	} else if (value == 4) {
+	} else if (input == 4) {
 		LCD_INFO("STOP\n");
 		atomic_set(&vdd->poc_driver.cancel, 1);
-	} else if (value == 7) {
+	} else if (input == 7) {
 		LCD_INFO("ERASE_SECTOR \n");
 		if (vdd->panel_func.samsung_poc_ctrl) {
-			ret = vdd->panel_func.samsung_poc_ctrl(vdd, POC_OP_ERASE_SECTOR, buf);
+			ret = vdd->panel_func.samsung_poc_ctrl(vdd, POC_OP_ERASE_SECTOR);
 		}
 	} else {
 		LCD_INFO("input check !! \n");
@@ -2482,7 +2479,7 @@ static ssize_t xtalk_store(struct device *dev,
 	} else {
 		vdd->xtalk_mode = 0;
 	}
-	ss_brightness_dcs(vdd, USE_CURRENT_BL_LEVEL, BACKLIGHT_NORMAL);
+	ss_brightness_dcs(vdd, vdd->bl_level);
 end:
 	return size;
 }
@@ -2593,7 +2590,7 @@ static ssize_t ss_irc_mode_store(struct device *dev,
 		vdd->irc_mode = input_mode;
 
 		if (!vdd->dtsi_data.tft_common_support)
-			ss_brightness_dcs(vdd, USE_CURRENT_BL_LEVEL, BACKLIGHT_NORMAL);
+			ss_brightness_dcs(vdd, vdd->bl_level);
 	}
 end:
 	return size;
@@ -2686,7 +2683,7 @@ static ssize_t ss_adaptive_control_store(struct device *dev,
 		vdd->acl_status = 1;
 
 	if (!vdd->dtsi_data.tft_common_support)
-		ss_brightness_dcs(vdd, USE_CURRENT_BL_LEVEL, BACKLIGHT_NORMAL);
+		ss_brightness_dcs(vdd, vdd->bl_level);
 
 	return size;
 }
@@ -3320,7 +3317,7 @@ static ssize_t ss_disp_flash_gamma_store(struct device *dev,
 	}
 
 	if (!ss_is_panel_on(vdd)) {
-		LCD_ERR("panel stste (%d). \n", vdd->panel_state);
+		LCD_ERR("panel stste (%d) \n", vdd->panel_state);
 		return size;
 	}
 
@@ -3447,44 +3444,6 @@ err:
 	return size;
 }
 
-/* SAMSUNG_FINGERPRINT */
-static ssize_t ss_finger_hbm_store(struct device *dev,
-		struct device_attribute *attr, const char *buf, size_t size)
-{
-	struct samsung_display_driver_data *vdd =
-		(struct samsung_display_driver_data *)dev_get_drvdata(dev);
-	int value;
-
-	if (IS_ERR_OR_NULL(vdd)) {
-		LCD_ERR("no vdd");
-		return size;
-	}
-
-	sscanf(buf, "%d", &value);
-
-	LCD_INFO("mask_bl_level value : %d\n", value);
-	vdd->br.finger_mask_bl_level = value;
-
-	return size;
-
-}
-
-static ssize_t ss_finger_hbm_updated_show(struct device *dev,
-	struct device_attribute *attr, char *buf)
-{
-	struct samsung_display_driver_data *vdd =
-		(struct samsung_display_driver_data *)dev_get_drvdata(dev);
-
-	if (vdd->finger_mask)
-		sprintf(buf, "%d\n", vdd->br.finger_mask_bl_level);
-	else
-		sprintf(buf, "%d\n", vdd->finger_mask);
-
-	LCD_INFO("vdd->br.actual_mask_brightness value : %x\n", vdd->finger_mask);
-
-	return strlen(buf);
-}
-
 static DEVICE_ATTR(lcd_type, S_IRUGO, ss_disp_lcdtype_show, NULL);
 static DEVICE_ATTR(lcd_type2, S_IRUGO, ss_disp_lcdtype2_show, NULL);
 static DEVICE_ATTR(cell_id, S_IRUGO, ss_disp_cell_id_show, NULL);
@@ -3544,9 +3503,6 @@ static DEVICE_ATTR(force_flip, S_IWUSR | S_IWGRP, NULL, ss_force_flip_store);
 #endif
 static DEVICE_ATTR(gamma_flash, S_IRUGO | S_IWUSR | S_IWGRP, ss_disp_flash_gamma_show, ss_disp_flash_gamma_store);
 static DEVICE_ATTR(read_flash, S_IRUGO | S_IWUSR | S_IWGRP, ss_read_flash_show, ss_read_flash_store);
-/* SAMSUNG_FINGERPRINT */
-static DEVICE_ATTR(mask_brightness, S_IRUGO | S_IWUSR | S_IWGRP, NULL, ss_finger_hbm_store);
-static DEVICE_ATTR(actual_mask_brightness, S_IRUGO | S_IWUSR | S_IWGRP, ss_finger_hbm_updated_show, NULL);
 
 static struct attribute *panel_sysfs_attributes[] = {
 	&dev_attr_lcd_type.attr,
@@ -3606,8 +3562,6 @@ static struct attribute *panel_sysfs_attributes[] = {
 #endif
 	&dev_attr_gamma_flash.attr,
 	&dev_attr_read_flash.attr,
-	&dev_attr_mask_brightness.attr,
-	&dev_attr_actual_mask_brightness.attr,
 	NULL
 };
 static const struct attribute_group panel_sysfs_group = {
@@ -3658,7 +3612,6 @@ int ss_create_sysfs(struct samsung_display_driver_data *vdd)
 		lcd_device = lcd_device_register("panel", NULL, vdd, NULL);
 	else
 		lcd_device = lcd_device_register("panel_secondary", NULL, vdd, NULL);
-	vdd->lcd_dev = lcd_device;
 
 	if (IS_ERR_OR_NULL(lcd_device)) {
 		rc = PTR_ERR(lcd_device);

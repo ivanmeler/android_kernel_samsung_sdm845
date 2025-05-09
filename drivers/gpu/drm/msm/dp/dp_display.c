@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2019, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2017-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -45,7 +45,7 @@
 #endif
 #include "secdp.h"
 #include "secdp_sysfs.h"
-#define CCIC_DP_NOTI_REG_DELAY		30000
+#define CCIC_DP_NOTI_REG_DELAY		60000
 
 struct secdp_event {
 	struct dp_display_private *dp;
@@ -137,7 +137,7 @@ struct dp_display_private {
 
 	struct workqueue_struct *wq;
 	struct delayed_work hdcp_cb_work;
-	struct work_struct connect_work;
+	struct delayed_work connect_work;
 	struct work_struct attention_work;
 	struct mutex hdcp_mutex;
 	struct mutex session_lock;
@@ -154,14 +154,8 @@ struct dp_display_private *g_secdp_priv;
 
 void secdp_send_poor_connection_event(void)
 {
-	struct dp_display_private *dp = g_secdp_priv;
-
-	pr_info("poor connection!");
-
 	switch_set_state(&switch_secdp_msg, 1);
 	switch_set_state(&switch_secdp_msg, 0);
-
-	dp->sec.dex.prev = dp->sec.dex.curr = DEX_DISABLED;
 }
 
 bool secdp_get_power_status(void)
@@ -188,28 +182,6 @@ int secdp_get_hpd_status(void)
 		return 0;
 
 	return g_secdp_priv->sec.hpd;
-}
-
-bool secdp_get_poor_connection_status(void)
-{
-	struct dp_display_private *dp;
-
-	if (!g_secdp_priv)
-		return false;
-
-	dp = g_secdp_priv;
-	return dp->link->poor_connection;
-}
-
-bool secdp_get_link_train_status(void)
-{
-	struct dp_display_private *dp;
-
-	if (!g_secdp_priv)
-		return false;
-
-	dp = g_secdp_priv;
-	return dp->ctrl->get_link_train_status(dp->ctrl);
 }
 
 int secdp_read_branch_revision(struct dp_display_private *dp)
@@ -483,7 +455,8 @@ static void dp_display_deinitialize_hdcp(struct dp_display_private *dp)
 
 	sde_dp_hdcp2p2_deinit(dp->hdcp.data);
 	dp_display_destroy_hdcp_workqueue(dp);
-	mutex_destroy(&dp->hdcp_mutex);
+	if (&dp->hdcp_mutex)
+		mutex_destroy(&dp->hdcp_mutex);
 }
 
 static int dp_display_initialize_hdcp(struct dp_display_private *dp)
@@ -694,7 +667,7 @@ static void dp_display_post_open(struct dp_display *dp_display)
 
 	/* if cable is already connected, send notification */
 	if (dp->usbpd->hpd_high)
-		queue_work(dp->wq, &dp->connect_work);
+		queue_delayed_work(dp->wq, &dp->connect_work, HZ * 10);
 	else
 		dp_display->post_open = NULL;
 }
@@ -702,6 +675,7 @@ static void dp_display_post_open(struct dp_display *dp_display)
 static int dp_display_send_hpd_notification(struct dp_display_private *dp,
 		bool hpd)
 {
+	u32 timeout_sec;
 	int ret = 0;
 
 #ifdef CONFIG_SEC_DISPLAYPORT
@@ -715,8 +689,14 @@ static int dp_display_send_hpd_notification(struct dp_display_private *dp,
 
 	dp->dp_display.is_connected = hpd;
 
-	if (!dp_display_framework_ready(dp))
-		return ret;
+#ifndef CONFIG_SEC_DISPLAYPORT
+	if  (dp_display_framework_ready(dp))
+		timeout_sec = 5;
+	else
+		timeout_sec = 10;
+#else
+	timeout_sec = 15;
+#endif
 
 	dp->aux->state |= DP_STATE_NOTIFICATION_SENT;
 
@@ -733,11 +713,7 @@ static int dp_display_send_hpd_notification(struct dp_display_private *dp,
 #endif
 
 	if (!wait_for_completion_timeout(&dp->notification_comp,
-#ifndef CONFIG_SEC_DISPLAYPORT
-						HZ * 5)) {
-#else
-						HZ * 15)) {
-#endif
+						HZ * timeout_sec)) {
 		pr_warn("%s timeout\n", hpd ? "connect" : "disconnect");
 #ifndef CONFIG_SEC_DISPLAYPORT
 		/* cancel any pending request */
@@ -1014,9 +990,9 @@ static int dp_display_usbpd_configure_cb(struct device *dev)
 
 	dp_display_host_init(dp);
 
-	/* check for hpd high */
-	if  (dp->usbpd->hpd_high)
-		queue_work(dp->wq, &dp->connect_work);
+	/* check for hpd high and framework ready */
+	if  (dp->usbpd->hpd_high && dp_display_framework_ready(dp))
+		queue_delayed_work(dp->wq, &dp->connect_work, 0);
 end:
 	return rc;
 }
@@ -1032,7 +1008,7 @@ static int secdp_display_usbpd_configure_cb(void)
 
 	/* check for hpd high and framework ready */
 	if  (dp->usbpd->hpd_high && dp_display_framework_ready(dp))
-		queue_work(dp->wq, &dp->connect_work);
+		queue_delayed_work(dp->wq, &dp->connect_work, 0);
 
 	return rc;
 }
@@ -1120,7 +1096,7 @@ static int dp_display_usbpd_disconnect_cb(struct device *dev)
 	dp->aux->abort(dp->aux);
 
 	/* wait for idle state */
-	cancel_work(&dp->connect_work);
+	cancel_delayed_work(&dp->connect_work);
 	cancel_work(&dp->attention_work);
 	flush_workqueue(dp->wq);
 
@@ -1171,7 +1147,7 @@ static int secdp_display_usbpd_disconnect_cb(void)
 	dp->aux->abort(dp->aux);
 
 	/* wait for idle state */
-	cancel_work(&dp->connect_work);
+	cancel_delayed_work(&dp->connect_work);
 	flush_workqueue(dp->wq);
 
 	dp_display_handle_disconnect(dp);
@@ -1245,7 +1221,7 @@ static void dp_display_attention_work(struct work_struct *work)
 		msleep(60);
 #endif
 
-		queue_work(dp->wq, &dp->connect_work);
+		queue_delayed_work(dp->wq, &dp->connect_work, 0);
 		return;
 	}
 
@@ -1260,10 +1236,6 @@ static void dp_display_attention_work(struct work_struct *work)
 	}
 
 	if (dp->link->sink_request & DP_TEST_LINK_PHY_TEST_PATTERN) {
-#ifdef CONFIG_SEC_DISPLAYPORT
-		pr_debug("[PHY CTS] cancelling poor connection check!\n");
-		cancel_delayed_work(&dp->sec.link_status_work);
-#endif
 		dp->ctrl->process_phy_test_request(dp->ctrl);
 		return;
 	}
@@ -1297,12 +1269,18 @@ static int dp_display_usbpd_attention_cb(struct device *dev)
 		return -ENODEV;
 	}
 
+	/* check if framework is ready */
+	if (!dp_display_framework_ready(dp)) {
+		pr_err("framework not ready\n");
+		return -ENODEV;
+	}
+
 	if (dp->usbpd->hpd_irq && dp->usbpd->hpd_high &&
 	    dp->power_on) {
 		dp->link->process_request(dp->link);
 		queue_work(dp->wq, &dp->attention_work);
 	} else if (dp->usbpd->hpd_high) {
-		queue_work(dp->wq, &dp->connect_work);
+		queue_delayed_work(dp->wq, &dp->connect_work, 0);
 	} else {
 		/* cancel any pending request */
 		atomic_set(&dp->aborted, 1);
@@ -1310,7 +1288,7 @@ static int dp_display_usbpd_attention_cb(struct device *dev)
 		dp->aux->abort(dp->aux);
 
 		/* wait for idle state */
-		cancel_work(&dp->connect_work);
+		cancel_delayed_work(&dp->connect_work);
 		cancel_work(&dp->attention_work);
 		flush_workqueue(dp->wq);
 
@@ -1479,7 +1457,7 @@ static void secdp_process_attention(struct dp_display_private *dp,
 #endif
 
 		/* wait for idle state */
-		cancel_work(&dp->connect_work);
+		cancel_delayed_work(&dp->connect_work);
 		flush_workqueue(dp->wq);
 
 		dp_display_handle_disconnect(dp);
@@ -1492,7 +1470,7 @@ handle_hpd_high:
 	pr_info("is_connected <%d>\n", dp->dp_display.is_connected);
 	if (!dp->dp_display.is_connected) {
 		secdp_clear_link_status_update_cnt(dp->link);
-		queue_work(dp->wq, &dp->connect_work);
+		queue_delayed_work(dp->wq, &dp->connect_work, 0);
 	}
 
 end:
@@ -1565,7 +1543,7 @@ static int secdp_ccic_noti_cb(struct notifier_block *nb, unsigned long action,
 			secdp_bigdata_save_item(BD_ADT_VID, noti.sub2);
 			secdp_bigdata_save_item(BD_ADT_PID, noti.sub3);
 #endif
-			secdp_logger_set_max_count(300);
+			secdp_logger_set_max_count(150);
 
 			/* see dp_display_usbpd_configure_cb() */
 			dp_display_host_init(dp);
@@ -1578,7 +1556,7 @@ static int secdp_ccic_noti_cb(struct notifier_block *nb, unsigned long action,
 				goto end;
 			}
 
-			secdp_logger_set_max_count(300);
+			secdp_logger_set_max_count(150);
 
 			/* set flags here as soon as disconnected
 			 * resource clear will be made later at "secdp_process_attention"
@@ -1629,7 +1607,7 @@ static int secdp_ccic_noti_cb(struct notifier_block *nb, unsigned long action,
 		}
 
 		if (noti.sub1 == CCIC_NOTIFY_HIGH) {
-			secdp_logger_set_max_count(300);
+			secdp_logger_set_max_count(150);
 			dp->sec.hpd = true;
 		} else /* if (noti.sub1 == CCIC_NOTIFY_LOW) */ {
 			dp->sec.hpd = false;
@@ -1864,7 +1842,8 @@ struct drm_connector *secdp_get_connector(void)
 
 static void dp_display_connect_work(struct work_struct *work)
 {
-	struct dp_display_private *dp = container_of(work,
+	struct delayed_work *dw = to_delayed_work(work);
+	struct dp_display_private *dp = container_of(dw,
 			struct dp_display_private, connect_work);
 
 	if (dp->dp_display.is_connected && dp_display_framework_ready(dp)) {
@@ -2507,7 +2486,7 @@ static int dp_display_create_workqueue(struct dp_display_private *dp)
 	}
 
 	INIT_DELAYED_WORK(&dp->hdcp_cb_work, dp_display_hdcp_cb_work);
-	INIT_WORK(&dp->connect_work, dp_display_connect_work);
+	INIT_DELAYED_WORK(&dp->connect_work, dp_display_connect_work);
 	INIT_WORK(&dp->attention_work, dp_display_attention_work);
 
 	return 0;
