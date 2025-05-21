@@ -3077,7 +3077,8 @@ static int dsi_display_clocks_init(struct dsi_display *display)
 		rc = PTR_ERR(mux->byte_clk);
 		pr_err("failed to get mux_byte_clk, rc=%d\n", rc);
 		mux->byte_clk = NULL;
-		goto error;
+		rc = 0;
+		goto done;
 	};
 
 	mux->pixel_clk = devm_clk_get(&display->pdev->dev, "mux_pixel_clk");
@@ -3085,7 +3086,8 @@ static int dsi_display_clocks_init(struct dsi_display *display)
 		rc = PTR_ERR(mux->pixel_clk);
 		mux->pixel_clk = NULL;
 		pr_err("failed to get mux_pixel_clk, rc=%d\n", rc);
-		goto error;
+		rc = 0;
+		goto done;
 	};
 
 	src->byte_clk = devm_clk_get(&display->pdev->dev, "src_byte_clk");
@@ -3150,10 +3152,11 @@ static int dsi_display_clocks_init(struct dsi_display *display)
 	};
 
 done:
+	dyn_clk_caps->dyn_clk_support = false;
 	return 0;
-error:
-	(void)dsi_display_clocks_deinit(display);
-	return rc;
+//error:
+//	(void)dsi_display_clocks_deinit(display);
+//	return rc;
 }
 
 static int dsi_display_clk_ctrl_cb(void *priv,
